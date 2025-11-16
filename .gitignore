@@ -38,6 +38,17 @@ local.properties
 # node.js
 #
 node_modules/
+*.env
+.env
+.env.*
+!*.env.example
+*.keystore
+*.p8
+*.pem
+*.key
+*.jks
+android/app/google-services.json
+ios/Front/GoogleService-Info.plist
 npm-debug.log
 yarn-error.log
 

@@ -1,8 +1,11 @@
-// Backend base URL
-// If using Supabase Edge Functions, set to: https://<project-ref>.functions.supabase.co
-// For local server testing (Android emulator): http://10.0.2.2:8080
-// For iOS simulator local server: http://localhost:8080
-export const BASE_URL = 'https://<PROJECT-REF>.functions.supabase.co';
+import { BASE_URL as ENV_BASE_URL, SUPABASE_ANON_KEY as ENV_SUPABASE_ANON_KEY } from '@env';
+
+// Backend base URL (injected from .env)
+// Examples:
+// - Supabase: https://<project-ref>.functions.supabase.co
+// - Android emulator local: http://10.0.2.2:8080
+// - iOS simulator local: http://localhost:8080
+export const BASE_URL = (ENV_BASE_URL || '').replace(/\/$/, '');
 
 export const ENDPOINTS = {
   analyzeBarcodeImage: '/analyze/barcode-image',
@@ -11,7 +14,7 @@ export const ENDPOINTS = {
 
 // Supabase client headers
 // Use anon key for public functions or user access token for authenticated calls.
-export const SUPABASE_ANON_KEY = '<SUPABASE_ANON_KEY>';
+export const SUPABASE_ANON_KEY = ENV_SUPABASE_ANON_KEY || '';
 export function buildSupabaseHeaders(token?: string) {
   const bearer = token || SUPABASE_ANON_KEY;
   return {
