@@ -1,104 +1,66 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# 🥗 NutriMatch: AI-Powered Nutrition Scanner
 
-NutriMatch Frontend adds two simple flows:
+**NutriMatch**는 단순한 칼로리 카운터가 아닙니다. 이 앱은 복잡한 알레르기, 특정 식단(비건, 키토 등), 또는 건강 목표를 가진 사용자가 마트에서 불안감 없이 확신을 가지고 식료품을 구매할 수 있도록 돕는 **'초개인화 AI 영양 조수'**입니다.
 
-- Barcode Capture: take a photo of a barcode and send to backend AI for decoding + nutrition lookup.
-- Food/Label Capture: take a photo of a food item or nutrition label and send to backend AI for extraction.
+---
 
-Configure your backend URL in `src/config.ts` (default uses Android emulator host `http://10.0.2.2:8080`).
+## 🎯 The Problem: "이거 내가 먹어도 되나?"
 
-# Getting Started
+수백만 명의 사람들이 복잡한 식이 요법을 따르지만, 식료품 성분표는 깨알 같고, 전문 용어로 가득 차 있으며, 읽기 어렵습니다.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+* **불안감:** 알레르기 환자에게 실수(예: '밀'을 '쌀'로 잘못 읽음)는 생명과 직결될 수 있습니다.
+* **높은 비용:** `Fig`와 같은 기존 앱은 연 $40 이상의 높은 구독료를 요구합니다.
+* **이중 노동:** 마트에서 스캔하는 앱(`Fig`)과 집에서 기록하는 앱(`MyFitnessPal`)을 따로 써야 합니다.
 
-## Step 1: Start Metro
+**NutriMatch는 이 모든 문제를 '신뢰'와 '합리적인 비용', 그리고 '통합된 경험'으로 해결합니다.**
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+---
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+## ✨ 핵심 기능 (Core Features)
 
-```sh
-# Using npm
-npm start
+### 1. ⚡️ 스마트 스캔: 바코드 + OCR
+가장 빠르고 튼튼한 2단계 스캔 방식을 사용합니다.
 
-# OR using Yarn
-yarn start
-```
+* **1단계 (Barcode):** `Open Food Facts` (무료 공공 DB)의 바코드를 먼저 스캔하여, 이미 검증된 `ingredients_text`를 1초 만에 불러옵니다.
+* **2단계 (OCR Fallback):** 바코드 DB에 없는 신제품이나 로컬 PB 상품일 경우, 자동으로 **GCP Vision OCR API**를 호출하여 성분표 텍스트를 직접 스캔하는 '안전망' 모드로 전환됩니다.
 
-## Step 2: Build and run your app
+### 2. 🛡️ 사용자 검증 (Human-in-the-Loop) - (우리의 필살기)
+AI는 완벽하지 않지만, NutriMatch는 완벽해야 합니다. 우리는 **AI의 실수를 사용자가 직접 보완**하게 하여 100%의 신뢰와 법적 안전장치를 확보합니다.
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+1.  **AI 1차 분석:** OCR이 텍스트를 추출합니다.
+2.  **사용자 검증:** 앱이 사용자에게 **"AI가 이렇게 읽었어요. 맞나요?"**라며 원본 사진과 추출된 텍스트를 나란히 보여줍니다.
+3.  **수정:** AI가 '쌀'로 잘못 읽은 `밀`을 사용자가 직접 '밀'로 수정합니다.
+4.  **최종 판정:** NutriMatch는 **'사용자가 최종 확인한'** 텍스트를 기준으로만 O/X 분석을 수행합니다.
 
-### Android
+### 3. 🧠 듀얼 AI 분석 엔진 (비용 통제)
+"튼튼한" 1인 개발자 수익 모델을 위해, 기능별로 AI 모델을 전략적으로 분리합니다.
 
-```sh
-# Using npm
-npm run android
+* **Text Analysis (Basic/Premium Plan):**
+    * **Gemini 1.5 Flash** (저비용 모델)
+    * 사용자가 검증한 '텍스트'와 사용자의 '건강 프로필'을 대조합니다.
+    * 비용이 매우 저렴하여 '무제한 텍스트 스캔'을 제공할 수 있습니다.
+* **Image Analysis (Premium Plan Only):**
+    * **Gemini 1.5 Pro** (고비용 모델)
+    * 성분표가 없는 식당 음식, 집밥 등의 '음식 사진'을 시각적으로 추론합니다.
+    * 비용이 비싸므로 **"월 100회"** 횟수 제한을 두어 수익 모델을 방어합니다.
 
-# OR using Yarn
-yarn android
-```
+### 4. 🧑‍⚕️ 초개인화 프로필
+사용자의 고유한 건강 프로필을 Supabase DB에 안전하게 저장합니다.
 
-### iOS
+* **알레르기:** (예: 견과류, 갑각류, 대두...)
+* **식이요법:** (예: 비건, 락토-오보, 키토, 저탄고지, 저FODMAP...)
+* **건강 목표:** (예: 다이어트, 벌크업, 저염식...)
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+---
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+## 💻 기술 스택 (The Stack)
 
-```sh
-bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+| 영역 | 기술 | 사유 (Why?) |
+| :--- | :--- | :--- |
+| **Frontend** | **React Native** (Expo) | Android/iOS 크로스플랫폼 개발, 빠른 프로토타이핑 |
+| **Backend** | **Supabase** (BaaS) | 1인 개발자에게 완벽한 '올인원 키트' (Auth, DB, Storage, Functions) |
+| **Database** | **PostgreSQL** | 튼튼하고 정형화된 데이터 관리를 위한 SQL |
+| **Backend Logic**| **Supabase Edge Functions** | VS Code에서 TypeScript로 '서버리스' 백엔드(AI 제어 로직) 개발 |
+| **AI (Text)** | **GCP Vision OCR** + **Gemini 1.5 Flash** | **비용 최적화.** (저렴한 OCR + 초저가 텍스트 분석) |
+| **AI (Image)** | **Gemini 1.5 Pro (Vertex AI)** | **성능.** (복잡한 시각적 추론을 위한 고성능 모델) |
+| **Payments** | **Google Play Billing** | 자동 환전(KRW) 및 15% 수수료(1인 개발자 혜택) |
