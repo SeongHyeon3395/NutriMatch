@@ -56,6 +56,7 @@ function Home() {
       setMode(selected);
       setError(null);
       setResult(null);
+      
 
       const res = await launchCamera(cameraOptions);
       if (res.didCancel) {
@@ -123,15 +124,14 @@ function Home() {
     );
   }
 
+  
+
   return (
     <View style={styles.container}>
       <Text style={styles.brand}>NutriMatch</Text>
       <Text style={styles.sub}>간단 촬영으로 AI 영양 분석</Text>
       <View style={styles.spacer} />
-      <TouchableOpacity
-        onPress={() => handleCapture('barcode')}
-        style={styles.button}
-      >
+      <TouchableOpacity onPress={() => handleCapture('barcode')} style={styles.button}>
         <Text style={styles.buttonText}>바코드 촬영</Text>
       </TouchableOpacity>
       <TouchableOpacity
