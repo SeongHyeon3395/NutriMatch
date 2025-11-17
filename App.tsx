@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Platform,
   useColorScheme,
+  PermissionsAndroid,
   View,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -59,6 +60,18 @@ function Home() {
       
 
       const res = await launchCamera(cameraOptions);
+
+        // Android: ensure CAMERA permission before opening the camera
+        if (Platform.OS === 'android') {
+          const granted = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.CAMERA
+          );
+          if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+            setError('카메라 권한이 필요합니다. 설정에서 권한을 허용해주세요.');
+            setMode(null);
+            return;
+          }
+        }
       if (res.didCancel) {
         reset();
         return;
