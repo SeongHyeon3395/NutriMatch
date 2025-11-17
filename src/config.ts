@@ -8,8 +8,9 @@ import { BASE_URL as ENV_BASE_URL, SUPABASE_ANON_KEY as ENV_SUPABASE_ANON_KEY } 
 export const BASE_URL = (ENV_BASE_URL || '').replace(/\/$/, '');
 
 export const ENDPOINTS = {
-  analyzeBarcodeImage: '/analyze/barcode-image',
-  analyzeFoodImage: '/analyze/food-image',
+  // Supabase Edge Functions deploy at the root: https://<ref>.functions.supabase.co/<function-name>
+  analyzeBarcodeImage: '/analyze-barcode-image',
+  analyzeFoodImage: '/analyze-food-image',
 } as const;
 
 // Supabase client headers

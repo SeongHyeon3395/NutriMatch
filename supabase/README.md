@@ -24,7 +24,8 @@ supabase functions deploy analyze-food-image
 ```
 4. Set any external API keys as function environment variables
 ```sh
-supabase secrets set BARCODE_API_KEY=... OCR_API_KEY=... OPENAI_API_KEY=...
+# Required for barcode extraction and fallback OCR
+supabase secrets set GEMINI_API_KEY=YOUR_GEMINI_API_KEY
 ```
 
 ## Invoke
@@ -35,6 +36,11 @@ https://<YOUR_PROJECT_REF>.functions.supabase.co/analyze-food-image
 ```
 
 Send a `POST` request with a `multipart/form-data` body and `file` field.
+
+### analyze-barcode-image
+- Extracts barcode digits from the photo using Gemini Vision
+- Looks up product and ingredients via Open Food Facts (`/api/v2/product/{barcode}.json`)
+- If OFF is missing ingredients, falls back to Gemini to read the label directly
 
 ## Security
 - Prefer authenticated calls from the app: pass `Authorization: Bearer <user_access_token>` and `apikey: <anon_key>` headers.
