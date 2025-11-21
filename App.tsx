@@ -19,11 +19,9 @@ import { analyzeFoodImage, AnalyzeResponse } from './src/services/api';
 type Mode = 'food';
 
 function App() {
-  const isDarkMode = useColorScheme() === 'dark';
-
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       <Home />
     </SafeAreaProvider>
   );
@@ -35,6 +33,8 @@ function Home() {
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [imageWidth, setImageWidth] = useState<number | undefined>(undefined);
+  const [imageHeight, setImageHeight] = useState<number | undefined>(undefined);
 
   const cameraOptions: CameraOptions = useMemo(
     () => ({
@@ -52,6 +52,9 @@ function Home() {
     setResult(null);
     setError(null);
     setLoading(false);
+    setImageUri(null);
+    setImageWidth(undefined);
+    setImageHeight(undefined);
   }, []);
 
   const handleCapture = useCallback(
@@ -108,7 +111,8 @@ function Home() {
         return;
       }
 
-      const uri = res.assets?.[0]?.uri;
+      const asset = res.assets?.[0];
+      const uri = asset?.uri;
       if (!uri) {
         setError('이미지를 가져오지 못했습니다.');
         return;
@@ -117,6 +121,8 @@ function Home() {
       try {
         setLoading(true);
         setImageUri(uri);
+        setImageWidth(asset?.width);
+        setImageHeight(asset?.height);
         const data = await analyzeFoodImage(uri);
         setResult(data);
       } catch (e: any) {
@@ -184,7 +190,8 @@ function Home() {
         setError(res.errorMessage || map[res.errorCode] || res.errorCode);
         return;
       }
-      const uri = res.assets?.[0]?.uri;
+      const asset = res.assets?.[0];
+      const uri = asset?.uri;
       if (!uri) {
         setError('이미지를 가져오지 못했습니다.');
         return;
@@ -192,6 +199,8 @@ function Home() {
       try {
         setLoading(true);
         setImageUri(uri);
+        setImageWidth(asset?.width);
+        setImageHeight(asset?.height);
         const data = await analyzeFoodImage(uri);
         setResult(data);
       } catch (e: any) {
@@ -231,7 +240,7 @@ function Home() {
           <Text style={styles.error}>{error}</Text>
         ) : (
           <ScrollView style={styles.resultBox} contentContainerStyle={{ padding: 16 }}>
-            <FoodResultView uri={imageUri} data={result?.data} />
+            <FoodResultView uri={imageUri} width={imageWidth} height={imageHeight} data={result?.data} />
           </ScrollView>
         )}
         <View style={styles.row}>
@@ -266,10 +275,10 @@ function Home() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center' },
-  centered: { flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center' },
-  brand: { fontSize: 28, fontWeight: '700' },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: 8 },
+  container: { flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff' },
+  centered: { flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff' },
+  brand: { fontSize: 28, fontWeight: '700', color: '#000000' },
+  title: { fontSize: 22, fontWeight: '700', marginBottom: 8, color: '#000000' },
   sub: { fontSize: 14, color: '#666', marginTop: 8 },
   spacer: { height: 24 },
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
@@ -290,40 +299,113 @@ const styles = StyleSheet.create({
 
 export default App;
 
-function Field({ label, value }: { label: string; value?: any }) {
-  if (value === undefined || value === null || value === '') return null;
-  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-  return (
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ fontWeight: '700', marginBottom: 4 }}>{label}</Text>
-      <Text selectable style={styles.mono}>{text}</Text>
-    </View>
-  );
-}
 
-function FoodResultView({ uri, data }: { uri: string | null; data?: any }) {
+
+function FoodResultView({ uri, width, height, data }: { uri: string | null; width?: number; height?: number; data?: any }) {
   if (!data) return <Text style={styles.mono}>결과가 비어있습니다.</Text>;
   const macros = data.estimated_macros || {};
+  const aspectRatio = (width && height) ? width / height : undefined;
+  
   return (
     <View>
       {uri && (
         <View style={{ marginBottom: 12 }}>
           <Text style={{ fontWeight: '700', marginBottom: 4 }}>촬영/선택한 이미지</Text>
-          <Image source={{ uri }} style={styles.previewImage} resizeMode="cover" />
+          <Image 
+            source={{ uri }} 
+            style={[
+              styles.previewImage, 
+              aspectRatio ? { width: '100%', height: undefined, aspectRatio } : {}
+            ]} 
+            resizeMode="contain" 
+          />
         </View>
       )}
-      <Field label="요리명" value={data.dish} />
-      <Field label="추정 재료" value={data.ingredients} />
-      <Field label="알레르기" value={data.allergens} />
-      <Field label="열량(kcal)" value={macros.calories} />
-      <Field label="단백질(g)" value={macros.protein_g} />
-      <Field label="탄수화물(g)" value={macros.carbs_g} />
-      <Field label="지방(g)" value={macros.fat_g} />
-      <Field label="신뢰도" value={data.confidence} />
-      <Field label="요약" value={data.notes} />
-      <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#eee' }}>
-        <Text style={{ fontSize: 16, fontWeight: '700', marginBottom: 6 }}>원본 응답(JSON)</Text>
-        <Text selectable style={styles.mono}>{JSON.stringify({ ok: true, data }, null, 2)}</Text>
+      
+      <View style={{ marginTop: 10, padding: 16, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#eee', elevation: 2 }}>
+        {data.brand && (
+          <Text style={{ fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 2 }}>
+            {data.brand}
+          </Text>
+        )}
+        <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#2E7D32', marginBottom: 12, textAlign: 'center' }}>
+          {data.dish || '알 수 없음'}
+        </Text>
+
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#555', marginBottom: 4 }}>주요 재료</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {data.ingredients?.map((ing: string, i: number) => (
+              <View key={i} style={{ backgroundColor: '#E8F5E9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
+                <Text style={{ fontSize: 13, color: '#2E7D32' }}>{ing}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#555', marginBottom: 4 }}>알레르기 정보</Text>
+          {data.allergens?.length > 0 ? (
+             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {data.allergens.map((alg: string, i: number) => (
+                <View key={i} style={{ backgroundColor: '#FFEBEE', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
+                  <Text style={{ fontSize: 13, color: '#C62828' }}>{alg}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={{ fontSize: 13, color: '#888' }}>발견된 알레르기 성분 없음</Text>
+          )}
+        </View>
+
+        <View style={{ marginBottom: 12, padding: 12, backgroundColor: '#FAFAFA', borderRadius: 8 }}>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#555', marginBottom: 8 }}>
+            영양 정보 ({data.reference_standard || '1인분 추정'})
+          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text style={{ color: '#444' }}>열량</Text>
+            <Text style={{ fontWeight: 'bold' }}>{macros.calories ? `${macros.calories} kcal` : '-'}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text style={{ color: '#444' }}>탄수화물</Text>
+            <Text style={{ fontWeight: 'bold' }}>{macros.carbs_g ? `${macros.carbs_g}g` : '-'}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text style={{ color: '#444' }}>당류</Text>
+            <Text style={{ fontWeight: 'bold' }}>{macros.sugar_g ? `${macros.sugar_g}g` : '-'}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text style={{ color: '#444' }}>단백질</Text>
+            <Text style={{ fontWeight: 'bold' }}>{macros.protein_g ? `${macros.protein_g}g` : '-'}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text style={{ color: '#444' }}>지방</Text>
+            <Text style={{ fontWeight: 'bold' }}>{macros.fat_g ? `${macros.fat_g}g` : '-'}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text style={{ color: '#666', fontSize: 12 }}> - 포화지방</Text>
+            <Text style={{ fontSize: 12 }}>{macros.saturated_fat_g ? `${macros.saturated_fat_g}g` : '-'}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text style={{ color: '#666', fontSize: 12 }}> - 트랜스지방</Text>
+            <Text style={{ fontSize: 12 }}>{macros.trans_fat_g ? `${macros.trans_fat_g}g` : '-'}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text style={{ color: '#444' }}>나트륨</Text>
+            <Text style={{ fontWeight: 'bold' }}>{macros.sodium_mg ? `${macros.sodium_mg}mg` : '-'}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <Text style={{ color: '#444' }}>콜레스테롤</Text>
+            <Text style={{ fontWeight: 'bold' }}>{macros.cholesterol_mg ? `${macros.cholesterol_mg}mg` : '-'}</Text>
+          </View>
+        </View>
+
+        {data.notes && (
+           <View style={{ marginTop: 4 }}>
+             <Text style={{ fontSize: 14, fontWeight: '700', color: '#555', marginBottom: 4 }}>AI 요약</Text>
+             <Text style={{ fontSize: 13, color: '#444', lineHeight: 18 }}>{data.notes}</Text>
+           </View>
+        )}
       </View>
     </View>
   );
