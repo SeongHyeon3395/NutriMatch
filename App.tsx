@@ -265,11 +265,7 @@ function Home() {
       <TouchableOpacity onPress={handlePickFromGallery} style={[styles.button, styles.secondary]}>
         <Text style={styles.buttonText}>음식 사진 선택</Text>
       </TouchableOpacity>
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          Gemini 기반 음식 인식: 사진을 또 선택하거나 촬영해 보세요.
-        </Text>
-      </View>
+
     </View>
   );
 }
