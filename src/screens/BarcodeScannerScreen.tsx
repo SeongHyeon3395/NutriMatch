@@ -1,7 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { PermissionsAndroid, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-// @ts-ignore CameraKit types may not include named export in this version
-import { CameraKitCameraScreen } from 'react-native-camera-kit';
+
+// Safe import: if the native module isn't linked or not installed, avoid crashing
+let CameraKitCameraScreen: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  CameraKitCameraScreen = require('react-native-camera-kit').CameraKitCameraScreen;
+} catch (_) {
+  CameraKitCameraScreen = null;
+}
 
 export type BarcodeScannerScreenProps = {
   onCancel: () => void;
@@ -20,10 +27,16 @@ export default function BarcodeScannerScreen({ onCancel, onDetected }: BarcodeSc
     })();
   }, []);
 
-  if (!hasPermission) {
+  const scannerAvailable = useMemo(() => typeof CameraKitCameraScreen === 'function', []);
+
+  if (!hasPermission || !scannerAvailable) {
     return (
       <View style={styles.centered}>
-        <Text>카메라 권한이 필요합니다.</Text>
+        <Text>
+          {hasPermission
+            ? '스캐너 모듈이 설치되지 않았습니다. (react-native-camera-kit)'
+            : '카메라 권한이 필요합니다.'}
+        </Text>
         <TouchableOpacity onPress={onCancel} style={[styles.button, styles.ghost]}>
           <Text style={[styles.buttonText, styles.ghostText]}>닫기</Text>
         </TouchableOpacity>

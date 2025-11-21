@@ -1,16 +1,68 @@
-import { BASE_URL as ENV_BASE_URL, SUPABASE_ANON_KEY as ENV_SUPABASE_ANON_KEY } from '@env';
+import { BASE_URL as ENV_BASE_URL, SUPABASE_ANON_KEY as ENV_SUPABASE_ANON_KEY, SUPABASE_URL as ENV_SUPABASE_URL } from '@env';
+// Debug 로그: 개발 중 BASE_URL 로딩 문제 추적용
+if (__DEV__) {
+  // eslint-disable-next-line no-console
+  console.log('[ENV] BASE_URL raw from @env:', ENV_BASE_URL);
+}
+import { Platform } from 'react-native';
 
 // Backend base URL (injected from .env)
 // Examples:
 // - Supabase: https://<project-ref>.functions.supabase.co
 // - Android emulator local: http://10.0.2.2:8080
 // - iOS simulator local: http://localhost:8080
-export const BASE_URL = (ENV_BASE_URL || '').replace(/\/$/, '');
+function normalizeBaseUrl(url: string) {
+  let u = (url || '').trim().replace(/\/$/, '');
+  if (!u) return '';
+  // Android 에뮬레이터에서 localhost를 접근할 때 10.0.2.2로 치환
+  if (Platform.OS === 'android') {
+    u = u.replace(/^http:\/\/localhost(?=[:/]|$)/i, 'http://10.0.2.2');
+    u = u.replace(/^http:\/\/127\.0\.0\.1(?=[:/]|$)/i, 'http://10.0.2.2');
+  }
+  return u;
+}
+
+// Prefer explicit BASE_URL; else derive from SUPABASE_URL (.supabase.co -> .functions.supabase.co)
+let BASE_URL = normalizeBaseUrl(ENV_BASE_URL || '');
+if (!BASE_URL && ENV_SUPABASE_URL) {
+  const supa = (ENV_SUPABASE_URL || '').trim().replace(/\/$/, '');
+  const m = supa.match(/^(https?:)\/\/([^/]+)$/i);
+  if (m) {
+    const proto = m[1];
+    const host = m[2].replace(/\.supabase\.co$/i, '.functions.supabase.co');
+    BASE_URL = `${proto}//${host}`;
+    if (__DEV__) console.log('[ENV] Derived BASE_URL from SUPABASE_URL:', BASE_URL);
+  }
+}
+if (!BASE_URL) {
+  // Fallback: try static JSON file checked into repo (.env.runtime.json)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const runtime = require('../.env.runtime.json');
+    if (runtime?.BASE_URL) {
+      BASE_URL = normalizeBaseUrl(runtime.BASE_URL);
+      if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.log('[ENV] Fallback .env.runtime.json BASE_URL applied:', BASE_URL);
+      }
+    }
+  } catch (_) {
+    if (__DEV__) {
+      // eslint-disable-next-line no-console
+      console.log('[ENV] No .env.runtime.json fallback found');
+    }
+  }
+}
+if (__DEV__ && !BASE_URL) {
+  // eslint-disable-next-line no-console
+  console.warn('[ENV] BASE_URL empty after fallback. Create .env or .env.runtime.json and restart Metro.');
+}
+export { BASE_URL };
 
 export const ENDPOINTS = {
-  // Supabase Edge Functions deploy at the root: https://<ref>.functions.supabase.co/<function-name>
-  analyzeBarcodeImage: '/analyze-barcode-image',
+  // Active Supabase Edge Functions
   analyzeFoodImage: '/analyze-food-image',
+  health: '/health',
 } as const;
 
 // Supabase client headers

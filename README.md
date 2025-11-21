@@ -16,40 +16,40 @@
 
 ---
 
-## ✨ 핵심 기능 (Core Features)
+## ✨ 현재 프로토타입 핵심 기능
 
-### 1. ⚡️ 스마트 스캔: 바코드 + OCR
-가장 빠르고 튼튼한 2단계 스캔 방식을 사용합니다.
+> 바코드/OCR 다단계 스캔 초기 설계는 제거되고, **음식 사진 단일 인식 흐름**으로 간소화되었습니다. 빠른 가설 검증과 사용자 피드백 수집을 위한 최소기능제품(MVP) 단계입니다.
 
-* **1단계 (Barcode):** `Open Food Facts` (무료 공공 DB)의 바코드를 먼저 스캔하여, 이미 검증된 `ingredients_text`를 1초 만에 불러옵니다.
-* **2단계 (OCR Fallback):** 바코드 DB에 없는 신제품이나 로컬 PB 상품일 경우, 자동으로 **GCP Vision OCR API**를 호출하여 성분표 텍스트를 직접 스캔하는 '안전망' 모드로 전환됩니다.
+### 1. 🍽️ 음식 사진 인식 (Gemini 1.5 Flash)
+단일 사진을 촬영 또는 갤러리에서 선택하면 Edge Function이 이미지를 받아 **Gemini Vision**으로 추론하여 다음 JSON을 반환합니다:
 
-### 2. 🛡️ 사용자 검증 (Human-in-the-Loop) - (우리의 필살기)
-AI는 완벽하지 않지만, NutriMatch는 완벽해야 합니다. 우리는 **AI의 실수를 사용자가 직접 보완**하게 하여 100%의 신뢰와 법적 안전장치를 확보합니다.
+```json
+{
+    "dish": {
+        "name": "Bibimbap",
+        "categories": ["Korean", "Rice", "Mixed"],
+        "confidence": 0.92,
+        "description": "A mixed rice bowl with assorted vegetables and gochujang."
+    }
+}
+```
 
-1.  **AI 1차 분석:** OCR이 텍스트를 추출합니다.
-2.  **사용자 검증:** 앱이 사용자에게 **"AI가 이렇게 읽었어요. 맞나요?"**라며 원본 사진과 추출된 텍스트를 나란히 보여줍니다.
-3.  **수정:** AI가 '쌀'로 잘못 읽은 `밀`을 사용자가 직접 '밀'로 수정합니다.
-4.  **최종 판정:** NutriMatch는 **'사용자가 최종 확인한'** 텍스트를 기준으로만 O/X 분석을 수행합니다.
+앱은 신뢰도(<=1 값은 % 변환)와 카테고리를 가공해 사용자에게 즉시 보여줍니다.
 
-### 3. 🧠 듀얼 AI 분석 엔진 (비용 통제)
-"튼튼한" 1인 개발자 수익 모델을 위해, 기능별로 AI 모델을 전략적으로 분리합니다.
+### 2. 🔄 초경량 UX 흐름
+1. 사용자: 촬영 또는 선택
+2. 앱: 로컬에서 FormData 구성 후 Supabase Edge Function 호출
+3. 서버: Gemini 호출 → JSON 정규화 → `{ ok: true, data }` 반환
+4. 앱: 미리보기 + 결과 렌더 (스켈레톤 로딩 포함)
 
-* **Text Analysis (Basic/Premium Plan):**
-    * **Gemini 1.5 Flash** (저비용 모델)
-    * 사용자가 검증한 '텍스트'와 사용자의 '건강 프로필'을 대조합니다.
-    * 비용이 매우 저렴하여 '무제한 텍스트 스캔'을 제공할 수 있습니다.
-* **Image Analysis (Premium Plan Only):**
-    * **Gemini 1.5 Pro** (고비용 모델)
-    * 성분표가 없는 식당 음식, 집밥 등의 '음식 사진'을 시각적으로 추론합니다.
-    * 비용이 비싸므로 **"월 100회"** 횟수 제한을 두어 수익 모델을 방어합니다.
+### 3. 🧪 빠른 가설 검증을 위한 의도적 생략
+아래 기능은 향후 단계에서 재도입 예정입니다:
+* 실시간 바코드 스캐너 / Open Food Facts 연동
+* OCR Fallback / 사용자 검증 편집 화면
+* 식이/알레르기 개인화 프로필 + 맞춤 분석
+* 고급 모델(Gemini Pro) 기반 레스토랑/복합요리 다중 추론
 
-### 4. 🧑‍⚕️ 초개인화 프로필
-사용자의 고유한 건강 프로필을 Supabase DB에 안전하게 저장합니다.
-
-* **알레르기:** (예: 견과류, 갑각류, 대두...)
-* **식이요법:** (예: 비건, 락토-오보, 키토, 저탄고지, 저FODMAP...)
-* **건강 목표:** (예: 다이어트, 벌크업, 저염식...)
+현재는 **"사진만 올리면 이름과 간단 설명"** 을 즉시 얻는 경험에 집중합니다.
 
 ---
 
@@ -61,8 +61,7 @@ AI는 완벽하지 않지만, NutriMatch는 완벽해야 합니다. 우리는 **
 | **Backend** | **Supabase** (BaaS) | 1인 개발자에게 완벽한 '올인원 키트' (Auth, DB, Storage, Functions) |
 | **Database** | **PostgreSQL** | 튼튼하고 정형화된 데이터 관리를 위한 SQL |
 | **Backend Logic**| **Supabase Edge Functions** | VS Code에서 TypeScript로 '서버리스' 백엔드(AI 제어 로직) 개발 |
-| **AI (Text)** | **GCP Vision OCR** + **Gemini 1.5 Flash** | **비용 최적화.** (저렴한 OCR + 초저가 텍스트 분석) |
-| **AI (Image)** | **Gemini 1.5 Pro (Vertex AI)** | **성능.** (복잡한 시각적 추론을 위한 고성능 모델) |
+| **AI (Vision)** | **Gemini 1.5 Flash** | 단일 음식 사진 인식 (저비용, 빠른 응답) |
 | **Payments** | **Google Play Billing** | 자동 환전(KRW) 및 15% 수수료(1인 개발자 혜택) |
 
 

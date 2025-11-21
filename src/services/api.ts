@@ -15,15 +15,19 @@ function normalizeUri(uri: string) {
 }
 
 async function uploadImage(endpoint: string, fileUri: string) {
+  if (!BASE_URL) {
+    throw new Error(
+      '환경변수 BASE_URL이 비어있습니다. .env에 BASE_URL(예: https://<project-ref>.functions.supabase.co)과 SUPABASE_ANON_KEY를 설정하고 Metro를 재시작하세요.'
+    );
+  }
   const form = new FormData();
   const filename = fileUri.split('/').pop() || `capture_${Date.now()}.jpg`;
-
-  form.append('file', {
-    // @ts-ignore RN FormData type mismatch
+  const rnFile = {
     uri: normalizeUri(fileUri),
     type: 'image/jpeg',
     name: filename,
-  });
+  };
+  form.append('file', rnFile);
 
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     method: 'POST',
@@ -42,10 +46,14 @@ async function uploadImage(endpoint: string, fileUri: string) {
   return json as AnalyzeResponse;
 }
 
-export async function analyzeBarcodeImage(fileUri: string) {
-  return uploadImage(ENDPOINTS.analyzeBarcodeImage, fileUri);
-}
-
 export async function analyzeFoodImage(fileUri: string) {
   return uploadImage(ENDPOINTS.analyzeFoodImage, fileUri);
+}
+
+export async function pingHealth(): Promise<AnalyzeResponse> {
+  if (!BASE_URL) throw new Error('BASE_URL 비어있음');
+  const res = await fetch(`${BASE_URL}${ENDPOINTS.health}`);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Health 실패 HTTP ${res.status}`);
+  return json as AnalyzeResponse;
 }
