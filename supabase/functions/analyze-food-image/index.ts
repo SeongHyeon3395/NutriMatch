@@ -22,7 +22,7 @@ function parseJsonBlock(text: string): any {
 async function callGemini(base64: string, mime: string, model: string, apiKey: string): Promise<any> {
   // ... (기존 callGemini 로직과 동일) ...
   // (생략: 위 코드와 동일하게 유지하세요)
-    const prompt = `당신은 한국의 식품 분석 전문가입니다. OCR을 사용하여 이미지를 분석하고 JSON으로 반환하세요.
+    const prompt = `당신은 한국의 식품 분석 전문가입니다. 이미지를 분석하여 음식/제품을 식별하고 영양 정보를 JSON으로 반환하세요.
   
   **응답 언어: 무조건 한국어(Korean)**
 
@@ -32,15 +32,19 @@ async function callGemini(base64: string, mime: string, model: string, apiKey: s
     "brand": string|null,
     "ingredients": string[], 
     "allergens": string[], 
-    "estimated_macros": { "calories": number|null, "protein_g": number|null, "carbs_g": number|null, "fat_g": number|null },
+    "estimated_macros": { "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number, "sugar_g": number, "sodium_mg": number, "cholesterol_mg": number, "saturated_fat_g": number, "trans_fat_g": number },
     "confidence": number, 
     "notes": string
   }
 
-  🚨 **분석 지침:**
-  1. **정확한 제품명 파악 (최우선)**: 포장지의 텍스트를 읽어 **브랜드명 + 제품명**을 정확히 조합하세요. (예: "연세우유 초코생크림빵"). 이것이 DB 검색의 키가 됩니다.
-  2. **영양성분**: 일단 포장지에 적힌 영양정보나 당신의 지식을 이용해 채우세요.
-  3. **알레르기**: 포장지를 읽거나 원재료를 분석해 알레르기 정보를 채우세요.
+  🚨 **분석 지침 (매우 중요):**
+  1. **식별 (Identify)**: 이미지 속 음식이나 제품의 정확한 이름을 파악하세요. (예: "김치찌개", "신라면", "스타벅스 아메리카노")
+  2. **데이터 채우기 (절대 빈칸 금지)**:
+     - **1순위 (패키지 OCR)**: 제품 포장지에 영양성분표가 보이면 그 값을 그대로 읽으세요.
+     - **2순위 (지식 기반 추정)**: 포장지가 없거나 텍스트가 안 보이면, **당신의 방대한 지식 데이터베이스(인터넷 정보)**를 활용하여 해당 음식의 **표준 영양 성분(1인분 기준)**을 반드시 채워넣으세요.
+     - **경고:** 'null', '0', '모름'으로 비워두는 것은 허용되지 않습니다. 정확한 값이 없다면 **가장 유사한 일반적인 레시피나 제품의 평균값**이라도 넣으세요. 사용자는 추정치라도 원합니다.
+  3. **알레르기**: 원재료를 분석하여 알레르기 유발 가능성을 판단하세요.
+  4. **Notes**: 이 데이터가 포장지에서 읽은 것인지, 아니면 일반적인 정보를 바탕으로 추정한 것인지 명시하세요.
   `;
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -103,51 +107,83 @@ serve(async (req: Request) => {
 
     if (geminiData && geminiData.dish) {
       const searchTerm = geminiData.dish.split(' ').join(' & ');
+      const cleanName = geminiData.dish.replace(/[^\w\s가-힣]/g, '').trim();
 
-      const { data: searchResults, error } = await supabase
+      // 2-1. 가공식품 DB (food_nutrition) 검색
+      const { data: processedResults } = await supabase
         .from('food_nutrition')
         .select('*')
         .textSearch('name', searchTerm, { config: 'simple', type: 'websearch' })
         .limit(1);
 
-      if (searchResults && searchResults.length > 0) {
-        dbFood = searchResults[0];
-        source = "Supabase DB (Verified Data)";
+      // 2-2. 일반음식 DB (foot_normal) 검색 - 가공식품에 없을 경우
+      let generalResults: any[] = [];
+      if (!processedResults || processedResults.length === 0) {
+         const { data: normalResults } = await supabase
+          .from('foot_normal')
+          .select('*')
+          .or(`name.ilike.%${cleanName}%,name.textSearch.${cleanName}`)
+          .limit(1);
+         if (normalResults) generalResults = normalResults;
+      }
+
+      if (processedResults && processedResults.length > 0) {
+        // [CASE A] 가공식품 DB 발견
+        dbFood = processedResults[0];
+        source = "Supabase DB (Processed Food)";
         referenceStandard = "100g 기준 (Per 100g)"; 
 
-        // 🚨 [중요] DB 값을 기반으로 브랜드 설정 (가공식품은 있고, 원물은 null이 되도록)
-        // DB에 brand 컬럼 값이 있으면 그 값을 쓰고, 없으면 null로 덮어씁니다.
         geminiData.brand = dbFood.brand || null;
-
-        // 🚨 [중요] AI가 가져온 수치를 DB 값으로 강제 교체
         geminiData.estimated_macros = {
           calories: dbFood.calories,
           protein_g: dbFood.protein,
           carbs_g: dbFood.carbs,
           fat_g: dbFood.fat,
-          sugar_g: dbFood.sugar,              // DB 컬럼명이 sugar인지 확인 필요
-          sodium_mg: dbFood.sodium,           // DB 컬럼명이 sodium인지 확인 필요
-          cholesterol_mg: dbFood.cholesterol, // DB 컬럼명이 cholesterol인지 확인 필요
+          sugar_g: dbFood.sugar,
+          sodium_mg: dbFood.sodium,
+          cholesterol_mg: dbFood.cholesterol,
           saturated_fat_g: dbFood.saturated_fat, 
           trans_fat_g: dbFood.trans_fat
         };
 
-        // 이름 업데이트 (브랜드가 있으면 앞에 붙여줌 - 선택사항)
         if (dbFood.brand) {
              geminiData.dish = `${dbFood.brand} ${dbFood.name}`;
         } else {
              geminiData.dish = dbFood.name;
         }
+        geminiNotice = `[데이터베이스 연동됨] 가공식품 DB에서 정확한 성분표를 가져왔습니다. (100g 기준)`;
 
-        geminiNotice = `[데이터베이스 연동됨] 정확한 성분표를 가져왔습니다. (주의: 위 영양 정보는 100g당 기준입니다.)`;
+      } else if (generalResults && generalResults.length > 0) {
+        // [CASE B] 일반음식 DB 발견 (foot_normal)
+        dbFood = generalResults[0];
+        source = "Supabase DB (General Food)";
+        referenceStandard = "100g 기준 (Per 100g)";
+
+        // 일반음식은 브랜드가 보통 없음
+        geminiData.brand = null; 
+        
+        // foot_normal 테이블 컬럼 매핑 (사용자 DB 스키마에 따라 수정 필요할 수 있음, 여기선 food_nutrition과 유사하다고 가정)
+        // 만약 컬럼명이 다르다면 여기서 수정해야 합니다. 예: energy -> calories
+        geminiData.estimated_macros = {
+          calories: dbFood.calories || dbFood.energy, // 컬럼명 대응
+          protein_g: dbFood.protein,
+          carbs_g: dbFood.carbs || dbFood.carbohydrate,
+          fat_g: dbFood.fat,
+          sugar_g: dbFood.sugar,
+          sodium_mg: dbFood.sodium,
+          cholesterol_mg: dbFood.cholesterol,
+          saturated_fat_g: dbFood.saturated_fat,
+          trans_fat_g: dbFood.trans_fat
+        };
+
+        geminiData.dish = dbFood.name;
+        geminiNotice = `[데이터베이스 연동됨] 일반음식 DB에서 성분표를 가져왔습니다. (100g 기준)`;
+
       } else {
+        // [CASE C] DB 미발견 -> AI 추정치 사용
         source = "AI Estimation (DB Not Found)";
         referenceStandard = "AI Estimate / Package Label";
-        geminiNotice = `[DB 미발견] AI가 패키지를 읽거나 추정했습니다. 정확하지 않을 수 있습니다.`;
-        
-        // DB 미발견 시 AI가 찾은 브랜드 유지. 
-        // 원한다면 여기서도 AI가 찾은 브랜드가 너무 불확실하면 null로 만들 수 있지만,
-        // AI가 OCR로 읽은 브랜드일 수 있으므로 그대로 둡니다.
+        geminiNotice = `[DB 미발견] AI가 패키지를 읽거나 인터넷 지식을 기반으로 추정했습니다.`;
       }
     }
 
@@ -160,12 +196,13 @@ serve(async (req: Request) => {
       reference_standard: referenceStandard,
       dish: geminiData?.dish ?? null,
       
+      
       // 🚨 [핵심 수정] 여기에 brand 필드를 반드시 포함시켜야 프론트엔드로 나갑니다.
       brand: geminiData?.brand ?? null,
 
       ingredients: Array.isArray(geminiData?.ingredients) ? geminiData.ingredients : [],
       allergens: Array.isArray(geminiData?.allergens) ? geminiData.allergens : [],
-      estimated_macros: geminiData?.estimated_macros || { calories: null, protein_g: null, carbs_g: null, fat_g: null },
+      estimated_macros: geminiData?.estimated_macros || { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, sugar_g: 0, sodium_mg: 0, cholesterol_mg: 0, saturated_fat_g: 0, trans_fat_g: 0 },
       confidence: typeof geminiData?.confidence === 'number' ? geminiData.confidence : 0,
       notes: geminiData?.notes || geminiNotice,
       fileMeta: { name: file.name, size: file.size, type: file.type },

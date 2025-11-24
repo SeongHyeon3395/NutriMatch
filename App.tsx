@@ -13,7 +13,7 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { launchCamera, launchImageLibrary, CameraOptions, ImageLibraryOptions } from 'react-native-image-picker';
+import ImagePicker from 'react-native-image-crop-picker';
 import { analyzeFoodImage, AnalyzeResponse } from './src/services/api';
 
 type Mode = 'food';
@@ -35,17 +35,6 @@ function Home() {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [imageWidth, setImageWidth] = useState<number | undefined>(undefined);
   const [imageHeight, setImageHeight] = useState<number | undefined>(undefined);
-
-  const cameraOptions: CameraOptions = useMemo(
-    () => ({
-      mediaType: 'photo',
-      cameraType: 'back',
-      includeBase64: false,
-      saveToPhotos: false,
-      quality: 0.8,
-    }),
-    []
-  );
 
   const reset = useCallback(() => {
     setMode(null);
@@ -81,57 +70,40 @@ function Home() {
         }
       }
 
-      // 2. launchCamera 호출 (권한 후)
-      let res;
+      // 2. ImagePicker.openCamera 호출 (크롭 옵션 추가)
       try {
-        res = await launchCamera(cameraOptions);
-      } catch (e: any) {
-        setError('카메라 실행 예외: ' + (e?.message || String(e)));
-        return;
-      }
+        const image = await ImagePicker.openCamera({
+          width: 800,
+          height: 800,
+          cropping: true,
+          freeStyleCropEnabled: true, // Android: 자유 비율 크롭
+          mediaType: 'photo',
+          includeBase64: false,
+        });
 
-      if (!res) {
-        setError('카메라 결과를 받지 못했습니다.');
-        return;
-      }
-      if (res.didCancel) {
-        reset();
-        return;
-      }
-      if (res.errorCode) {
-        const map: Record<string,string> = {
-          camera_unavailable: '카메라 사용 불가 (다른 앱이 사용 중일 수 있음).',
-          permission: '카메라 권한이 거부되었습니다. 설정에서 허용해주세요.',
-          no_camera: '기기에 카메라가 없습니다.',
-          others: '알 수 없는 카메라 오류가 발생했습니다.',
-          activity_error: '카메라 Activity 실행 실패. 앱 재설치 또는 재부팅을 시도하세요.',
-        };
-        if (__DEV__) console.log('Camera picker response:', res);
-        setError(res.errorMessage || map[res.errorCode] || res.errorCode);
-        return;
-      }
+        if (!image.path) {
+          setError('이미지를 가져오지 못했습니다.');
+          return;
+        }
 
-      const asset = res.assets?.[0];
-      const uri = asset?.uri;
-      if (!uri) {
-        setError('이미지를 가져오지 못했습니다.');
-        return;
-      }
-
-      try {
         setLoading(true);
-        setImageUri(uri);
-        setImageWidth(asset?.width);
-        setImageHeight(asset?.height);
-        const data = await analyzeFoodImage(uri);
+        setImageUri(image.path);
+        setImageWidth(image.width);
+        setImageHeight(image.height);
+        const data = await analyzeFoodImage(image.path);
         setResult(data);
+
       } catch (e: any) {
-        setError(e?.message || '분석 중 오류가 발생했습니다.');
+        if (e?.code !== 'E_PICKER_CANCELLED') {
+          setError('카메라 실행 예외: ' + (e?.message || String(e)));
+        } else {
+          reset();
+        }
       } finally {
         setLoading(false);
       }
     },
-    [cameraOptions, reset]
+    [reset]
   );
 
   const handlePickFromGallery = useCallback(
@@ -162,49 +134,34 @@ function Home() {
         }
       }
 
-      const options: ImageLibraryOptions = {
-        mediaType: 'photo',
-        selectionLimit: 1,
-        quality: 0.9,
-      };
-      let res;
       try {
-        res = await launchImageLibrary(options);
-      } catch (e: any) {
-        setError('갤러리 실행 예외: ' + (e?.message || String(e)));
-        return;
-      }
-      if (res.didCancel) {
-        reset();
-        return;
-      }
-      if (res.errorCode) {
-        const map: Record<string,string> = {
-          permission: '권한이 거부되었습니다. 설정에서 사진 접근을 허용해주세요.',
-          others: '갤러리 접근 중 오류가 발생했습니다.',
-          camera_unavailable: '카메라/갤러리를 사용할 수 없습니다.',
-          no_camera: '카메라를 찾을 수 없습니다.',
-          activity_error: '갤러리 Activity 실행 실패. 앱 재설치 또는 재부팅을 시도하세요.',
-        };
-        if (__DEV__) console.log('Gallery picker response:', res);
-        setError(res.errorMessage || map[res.errorCode] || res.errorCode);
-        return;
-      }
-      const asset = res.assets?.[0];
-      const uri = asset?.uri;
-      if (!uri) {
-        setError('이미지를 가져오지 못했습니다.');
-        return;
-      }
-      try {
+        const image = await ImagePicker.openPicker({
+          width: 800,
+          height: 800,
+          cropping: true,
+          freeStyleCropEnabled: true, // Android: 자유 비율 크롭
+          mediaType: 'photo',
+          includeBase64: false,
+        });
+
+        if (!image.path) {
+          setError('이미지를 가져오지 못했습니다.');
+          return;
+        }
+
         setLoading(true);
-        setImageUri(uri);
-        setImageWidth(asset?.width);
-        setImageHeight(asset?.height);
-        const data = await analyzeFoodImage(uri);
+        setImageUri(image.path);
+        setImageWidth(image.width);
+        setImageHeight(image.height);
+        const data = await analyzeFoodImage(image.path);
         setResult(data);
+
       } catch (e: any) {
-        setError(e?.message || '분석 중 오류가 발생했습니다.');
+        if (e?.code !== 'E_PICKER_CANCELLED') {
+          setError('갤러리 실행 예외: ' + (e?.message || String(e)));
+        } else {
+          reset();
+        }
       } finally {
         setLoading(false);
       }
@@ -291,6 +248,41 @@ const styles = StyleSheet.create({
   footer: { position: 'absolute', bottom: 16, left: 16, right: 16, alignItems: 'center' },
   footerText: { fontSize: 12, color: '#888' },
   previewImage: { width: '100%', height: 220, borderRadius: 8, backgroundColor: '#eee' },
+
+  // New Styles for FoodResultView
+  card: { backgroundColor: 'white', borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4, marginBottom: 20 },
+  cardImageContainer: { marginBottom: 20, borderRadius: 16, overflow: 'hidden', backgroundColor: '#f5f5f5', borderWidth: 1, borderColor: '#eee' },
+  cardImage: { width: '100%' },
+  cardHeader: { alignItems: 'center', marginBottom: 20 },
+  cardBrand: { fontSize: 14, color: '#666', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4, fontWeight: '600' },
+  cardTitle: { fontSize: 26, fontWeight: '800', color: '#1a1a1a', textAlign: 'center', letterSpacing: -0.5 },
+  divider: { height: 1, backgroundColor: '#eee', width: '60%', marginTop: 16 },
+  
+  nutritionSection: { marginBottom: 24 },
+  nutritionHeader: { fontSize: 24, fontWeight: '900', color: '#000', marginBottom: 2 },
+  nutritionSubHeader: { fontSize: 12, color: '#666', marginBottom: 8 },
+  thickDivider: { height: 8, backgroundColor: '#000', marginVertical: 4 },
+  thinDivider: { height: 1, backgroundColor: '#ddd', marginVertical: 4 },
+  nutriRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
+  nutriRowSub: { paddingLeft: 16 },
+  nutriLabel: { fontSize: 15, color: '#333' },
+  nutriLabelBold: { fontWeight: '700', fontSize: 16 },
+  nutriValue: { fontSize: 15, color: '#333' },
+  nutriValueBold: { fontWeight: '700', fontSize: 16 },
+
+  section: { marginBottom: 20 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#333', marginBottom: 10 },
+  chipContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: { backgroundColor: '#F1F8E9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#DCEDC8' },
+  chipText: { fontSize: 14, color: '#33691E', fontWeight: '600' },
+  chipAlert: { backgroundColor: '#FFEBEE', borderColor: '#FFCDD2' },
+  chipAlertText: { color: '#C62828' },
+  emptyText: { color: '#999', fontSize: 14, fontStyle: 'italic' },
+  safeText: { color: '#2E7D32', fontSize: 14, fontStyle: 'italic' },
+
+  noteContainer: { backgroundColor: '#F5F5F5', padding: 16, borderRadius: 12, borderLeftWidth: 4, borderLeftColor: '#2E7D32' },
+  noteTitle: { fontSize: 14, fontWeight: '700', color: '#2E7D32', marginBottom: 6 },
+  noteText: { fontSize: 14, color: '#444', lineHeight: 20 },
 });
 
 export default App;
@@ -303,106 +295,108 @@ function FoodResultView({ uri, width, height, data }: { uri: string | null; widt
   const aspectRatio = (width && height) ? width / height : undefined;
   
   return (
-    <View>
+    <View style={{ paddingBottom: 40 }}>
+      {/* Image Section */}
       {uri && (
-        <View style={{ marginBottom: 12 }}>
-          <Text style={{ fontWeight: '700', marginBottom: 4 }}>촬영/선택한 이미지</Text>
+        <View style={styles.cardImageContainer}>
           <Image 
             source={{ uri }} 
             style={[
-              styles.previewImage, 
-              aspectRatio ? { width: '100%', height: undefined, aspectRatio } : {}
+              styles.cardImage, 
+              aspectRatio ? { aspectRatio } : { height: 250 }
             ]} 
             resizeMode="contain" 
           />
         </View>
       )}
       
-      <View style={{ marginTop: 10, padding: 16, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#eee', elevation: 2 }}>
-        {data.brand && (
-          <Text style={{ fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 2 }}>
-            {data.brand}
-          </Text>
-        )}
-        <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#2E7D32', marginBottom: 12, textAlign: 'center' }}>
-          {data.dish || '알 수 없음'}
-        </Text>
+      {/* Main Info Card */}
+      <View style={styles.card}>
+        {/* Header: Brand & Name */}
+        <View style={styles.cardHeader}>
+          {data.brand && (
+            <Text style={styles.cardBrand}>{data.brand}</Text>
+          )}
+          <Text style={styles.cardTitle}>{data.dish || '알 수 없음'}</Text>
+          <View style={styles.divider} />
+        </View>
 
-        <View style={{ marginBottom: 12 }}>
-          <Text style={{ fontSize: 14, fontWeight: '700', color: '#555', marginBottom: 4 }}>주요 재료</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {/* Nutrition Facts Table Style */}
+        <View style={styles.nutritionSection}>
+          <Text style={styles.nutritionHeader}>Nutrition Facts</Text>
+          <Text style={styles.nutritionSubHeader}>
+            기준: {data.reference_standard || '1인분 추정'}
+          </Text>
+          <View style={styles.thickDivider} />
+          
+          <NutritionRow label="열량 (Calories)" value={macros.calories ? `${macros.calories} kcal` : '-'} isBold />
+          <View style={styles.thinDivider} />
+          
+          <NutritionRow label="탄수화물 (Carb)" value={macros.carbs_g ? `${macros.carbs_g}g` : '-'} isBold />
+          <NutritionRow label="  당류 (Sugars)" value={macros.sugar_g ? `${macros.sugar_g}g` : '-'} isSub />
+          <View style={styles.thinDivider} />
+
+          <NutritionRow label="단백질 (Protein)" value={macros.protein_g ? `${macros.protein_g}g` : '-'} isBold />
+          <View style={styles.thinDivider} />
+
+          <NutritionRow label="지방 (Fat)" value={macros.fat_g ? `${macros.fat_g}g` : '-'} isBold />
+          <NutritionRow label="  포화지방 (Saturated)" value={macros.saturated_fat_g ? `${macros.saturated_fat_g}g` : '-'} isSub />
+          <NutritionRow label="  트랜스지방 (Trans)" value={macros.trans_fat_g ? `${macros.trans_fat_g}g` : '-'} isSub />
+          <View style={styles.thinDivider} />
+
+          <NutritionRow label="나트륨 (Sodium)" value={macros.sodium_mg ? `${macros.sodium_mg}mg` : '-'} isBold />
+          <View style={styles.thinDivider} />
+
+          <NutritionRow label="콜레스테롤 (Cholesterol)" value={macros.cholesterol_mg ? `${macros.cholesterol_mg}mg` : '-'} isBold />
+          <View style={styles.thickDivider} />
+        </View>
+
+        {/* Ingredients */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>원재료 (Ingredients)</Text>
+          <View style={styles.chipContainer}>
             {data.ingredients?.map((ing: string, i: number) => (
-              <View key={i} style={{ backgroundColor: '#E8F5E9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
-                <Text style={{ fontSize: 13, color: '#2E7D32' }}>{ing}</Text>
+              <View key={i} style={styles.chip}>
+                <Text style={styles.chipText}>{ing}</Text>
               </View>
             ))}
+            {(!data.ingredients || data.ingredients.length === 0) && <Text style={styles.emptyText}>정보 없음</Text>}
           </View>
         </View>
 
-        <View style={{ marginBottom: 12 }}>
-          <Text style={{ fontSize: 14, fontWeight: '700', color: '#555', marginBottom: 4 }}>알레르기 정보</Text>
-          {data.allergens?.length > 0 ? (
-             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-              {data.allergens.map((alg: string, i: number) => (
-                <View key={i} style={{ backgroundColor: '#FFEBEE', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
-                  <Text style={{ fontSize: 13, color: '#C62828' }}>{alg}</Text>
+        {/* Allergens */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: '#D32F2F' }]}>알레르기 정보 (Allergens)</Text>
+          <View style={styles.chipContainer}>
+            {data.allergens?.length > 0 ? (
+              data.allergens.map((alg: string, i: number) => (
+                <View key={i} style={[styles.chip, styles.chipAlert]}>
+                  <Text style={[styles.chipText, styles.chipAlertText]}>{alg}</Text>
                 </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={{ fontSize: 13, color: '#888' }}>발견된 알레르기 성분 없음</Text>
-          )}
-        </View>
-
-        <View style={{ marginBottom: 12, padding: 12, backgroundColor: '#FAFAFA', borderRadius: 8 }}>
-          <Text style={{ fontSize: 14, fontWeight: '700', color: '#555', marginBottom: 8 }}>
-            영양 정보 ({data.reference_standard || '1인분 추정'})
-          </Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-            <Text style={{ color: '#444' }}>열량</Text>
-            <Text style={{ fontWeight: 'bold' }}>{macros.calories ? `${macros.calories} kcal` : '-'}</Text>
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-            <Text style={{ color: '#444' }}>탄수화물</Text>
-            <Text style={{ fontWeight: 'bold' }}>{macros.carbs_g ? `${macros.carbs_g}g` : '-'}</Text>
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-            <Text style={{ color: '#444' }}>당류</Text>
-            <Text style={{ fontWeight: 'bold' }}>{macros.sugar_g ? `${macros.sugar_g}g` : '-'}</Text>
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-            <Text style={{ color: '#444' }}>단백질</Text>
-            <Text style={{ fontWeight: 'bold' }}>{macros.protein_g ? `${macros.protein_g}g` : '-'}</Text>
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-            <Text style={{ color: '#444' }}>지방</Text>
-            <Text style={{ fontWeight: 'bold' }}>{macros.fat_g ? `${macros.fat_g}g` : '-'}</Text>
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-            <Text style={{ color: '#666', fontSize: 12 }}> - 포화지방</Text>
-            <Text style={{ fontSize: 12 }}>{macros.saturated_fat_g ? `${macros.saturated_fat_g}g` : '-'}</Text>
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-            <Text style={{ color: '#666', fontSize: 12 }}> - 트랜스지방</Text>
-            <Text style={{ fontSize: 12 }}>{macros.trans_fat_g ? `${macros.trans_fat_g}g` : '-'}</Text>
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-            <Text style={{ color: '#444' }}>나트륨</Text>
-            <Text style={{ fontWeight: 'bold' }}>{macros.sodium_mg ? `${macros.sodium_mg}mg` : '-'}</Text>
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={{ color: '#444' }}>콜레스테롤</Text>
-            <Text style={{ fontWeight: 'bold' }}>{macros.cholesterol_mg ? `${macros.cholesterol_mg}mg` : '-'}</Text>
+              ))
+            ) : (
+              <Text style={styles.safeText}>발견된 알레르기 성분 없음</Text>
+            )}
           </View>
         </View>
 
+        {/* AI Notes */}
         {data.notes && (
-           <View style={{ marginTop: 4 }}>
-             <Text style={{ fontSize: 14, fontWeight: '700', color: '#555', marginBottom: 4 }}>AI 요약</Text>
-             <Text style={{ fontSize: 13, color: '#444', lineHeight: 18 }}>{data.notes}</Text>
+           <View style={styles.noteContainer}>
+             <Text style={styles.noteTitle}>💡 AI 분석 코멘트</Text>
+             <Text style={styles.noteText}>{data.notes}</Text>
            </View>
         )}
       </View>
+    </View>
+  );
+}
+
+function NutritionRow({ label, value, isBold, isSub }: { label: string, value: string, isBold?: boolean, isSub?: boolean }) {
+  return (
+    <View style={[styles.nutriRow, isSub && styles.nutriRowSub]}>
+      <Text style={[styles.nutriLabel, isBold && styles.nutriLabelBold]}>{label}</Text>
+      <Text style={[styles.nutriValue, isBold && styles.nutriValueBold]}>{value}</Text>
     </View>
   );
 }
