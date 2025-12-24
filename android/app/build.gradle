@@ -116,4 +116,15 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // uCrop (react-native-image-crop-picker) dependencies
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.transition:transition:1.4.1'
 }
+
+// Ensure vector icon font files are bundled for Android builds
+project.ext.vectoricons = [
+    iconFontNames: [ 'MaterialIcons.ttf' ],
+    // iconFontsDir can be omitted; defaults to react-native-vector-icons/Fonts
+]
+apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"

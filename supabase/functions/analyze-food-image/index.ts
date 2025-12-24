@@ -19,7 +19,17 @@ function parseJsonBlock(text: string): any {
   try { return JSON.parse(match[0]); } catch { return { raw: text }; }
 }
 
-async function callGemini(base64: string, mime: string, model: string, apiKey: string): Promise<any> {
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+type GeminiErrorResult = {
+  error: string;
+  status: number;
+  retryAfterSeconds?: number;
+};
+
+async function callGemini(base64: string, mime: string, model: string, apiKey: string): Promise<any | GeminiErrorResult> {
   // ... (기존 callGemini 로직과 동일) ...
   // (생략: 위 코드와 동일하게 유지하세요)
     const prompt = `당신은 한국의 식품 분석 전문가입니다. 이미지를 분석하여 음식/제품을 식별하고 영양 정보를 JSON으로 반환하세요.
@@ -57,20 +67,63 @@ async function callGemini(base64: string, mime: string, model: string, apiKey: s
         { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
         { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
     ],
-    generationConfig: { temperature: 0.1 },
+    generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
   };
 
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const json = await res.json().catch(() => ({ error: "JSON Parse Error" }));
+  const maxAttempts = 3;
 
-  if (!res.ok || json.error) {
-    return { error: `Gemini API Error (${res.status}): ${JSON.stringify(json.error)}` };
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const retryAfterHeader = res.headers.get('retry-after');
+    const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : undefined;
+
+    const rawText = await res.text().catch(() => '');
+    const json = (() => {
+      try {
+        return rawText ? JSON.parse(rawText) : {};
+      } catch {
+        return { error: 'JSON Parse Error', raw: rawText };
+      }
+    })();
+
+    if (res.ok && !json?.error) {
+      const text: string | undefined = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        return { error: 'No text generated.', status: res.status };
+      }
+      return parseJsonBlock(text);
+    }
+
+    const isRateLimited = res.status === 429;
+    const isRetryable = isRateLimited || res.status === 503;
+    const hasMoreAttempts = attempt < maxAttempts - 1;
+
+    if (isRetryable && hasMoreAttempts) {
+      const baseDelayMs = 600;
+      const expo = baseDelayMs * Math.pow(2, attempt);
+      const jitter = Math.floor(Math.random() * 250);
+      const delayMs = Number.isFinite(retryAfterSeconds)
+        ? Math.max(0, (retryAfterSeconds as number) * 1000)
+        : expo + jitter;
+
+      await sleep(delayMs);
+      continue;
+    }
+
+    const errDetail = json?.error ? JSON.stringify(json.error) : rawText || 'Unknown error';
+    return {
+      error: `Gemini API Error (${res.status}): ${errDetail}`,
+      status: res.status,
+      retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined,
+    };
   }
 
-  const text: string | undefined = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) return { error: "No text generated." };
-  
-  return parseJsonBlock(text);
+  return { error: 'Gemini API Error: exceeded retry attempts.', status: 429 };
 }
 
 serve(async (req: Request) => {
@@ -86,19 +139,49 @@ serve(async (req: Request) => {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const base64 = encodeBase64(bytes);
     const apiKey = Deno.env.get('GEMINI_API_KEY');
-    const model = Deno.env.get('GEMINI_MODEL') || 'gemini-2.0-flash'; 
+    const model = Deno.env.get('GEMINI_MODEL') || 'gemini-1.5-flash';
 
     let geminiData: any = null;
     let geminiNotice = "";
 
     // 1. Gemini 호출
-    if (apiKey) {
-      geminiData = await callGemini(base64, file.type || 'image/jpeg', model, apiKey);
-    } else {
-      geminiNotice = "API Key is missing";
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({ ok: false, message: '서버 설정 오류: GEMINI_API_KEY가 없습니다.' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
     }
 
-    if (geminiData?.error) geminiNotice = geminiData.error;
+    geminiData = await callGemini(base64, file.type || 'image/jpeg', model, apiKey);
+
+    // Model fallback: some keys/projects have 0 quota for gemini-2.0-* free tier.
+    if (geminiData?.error && geminiData?.status === 429 && model !== 'gemini-1.5-flash') {
+      const fallbackModel = 'gemini-1.5-flash';
+      const fallbackData = await callGemini(base64, file.type || 'image/jpeg', fallbackModel, apiKey);
+      if (!fallbackData?.error) {
+        geminiData = fallbackData;
+      }
+    }
+
+    if (geminiData?.error) {
+      const status = typeof geminiData.status === 'number' ? geminiData.status : 502;
+      const is429 = status === 429;
+
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          code: status,
+          message: is429
+            ? '요청이 많아서 AI 분석이 지연되고 있어요. 잠시 후 다시 시도해주세요. (Gemini 429)'
+            : 'AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+          retryAfterSeconds: geminiData.retryAfterSeconds,
+        }),
+        {
+          status: is429 ? 429 : 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      );
+    }
 
     // 2. DB 검색 및 데이터 교체 로직
     let dbFood: any = null;

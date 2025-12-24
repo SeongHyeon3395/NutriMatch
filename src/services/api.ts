@@ -3,9 +3,22 @@ import { Platform } from 'react-native';
 
 export type AnalyzeResponse = {
   ok: boolean;
-  // Free-form fields; backend defines exact structure
-  data?: any;
+  // Backend returns { ok: true, data: { ... } }
+  data?: {
+    dish?: string; // Name of the dish
+    brand?: string;
+    source?: string;
+    reference_standard?: string;
+    estimated_macros?: any;
+    userAnalysis?: any;
+    confidence?: number;
+    notes?: string;
+    geminiUsed?: boolean;
+    [key: string]: any;
+  };
   message?: string;
+  // Fallback for flat structure
+  [key: string]: any;
 };
 
 function normalizeUri(uri: string) {
