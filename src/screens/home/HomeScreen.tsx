@@ -137,8 +137,8 @@ export default function HomeScreen() {
           analysisData.description.includes('RESOURCE_EXHAUSTED')
       )) {
         Alert.alert(
-          'AI 분석 사용량 초과',
-          '현재 AI 분석 요청이 많아 일시적으로 제한되었습니다.\n잠시 후(약 1분 뒤) 다시 시도해주세요.',
+          '잠시만요',
+          '지금은 AI 분석 요청이 많아 잠깐 쉬고 있어요.\n약 1분 뒤 다시 시도해주세요.',
           [{ text: '확인' }]
         );
         return;
@@ -185,14 +185,14 @@ export default function HomeScreen() {
         <View style={styles.actionContainer}>
           <TouchableOpacity 
             style={[styles.actionCard, { backgroundColor: '#E0F2FE' }]} 
-            onPress={() => Alert.alert('준비 중', '바코드 스캔 기능은 준비 중입니다.')}
+            onPress={handleCamera}
           >
             <View style={styles.iconContainer}>
               <Text style={styles.iconText}>📷</Text> 
             </View>
             <View style={styles.textContainer}>
               <Text style={styles.actionTitle}>Smart Scan</Text>
-              <Text style={styles.actionDesc}>바코드로 간편하게</Text>
+              <Text style={styles.actionDesc}>음식/성분표 촬영하기</Text>
             </View>
           </TouchableOpacity>
 

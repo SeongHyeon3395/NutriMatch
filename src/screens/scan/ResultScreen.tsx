@@ -88,14 +88,17 @@ export default function ResultScreen() {
 
           {/* Analysis Text */}
           <Card style={styles.analysisCard}>
-            <Text style={styles.sectionTitle}>분석 결과</Text>
+            <Text style={styles.sectionTitle}>한눈에 보기</Text>
             <Text style={styles.analysisText}>
               {analysis.userAnalysis?.tips?.[0] || analysis.description || '분석 결과가 없습니다.'}
+            </Text>
+            <Text style={styles.analysisNote}>
+              사진 기반 AI 추정 결과예요. 더 정확히 보려면 선명하게 다시 찍어주세요.
             </Text>
           </Card>
 
           <Button 
-            title="기록에 저장" 
+            title="기록에 남기기" 
             onPress={handleDone} 
             icon={<AppIcon name="check" size={20} color="white" />}
             style={styles.doneButton}
@@ -197,6 +200,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.textSecondary,
     lineHeight: 24,
+  },
+  analysisNote: {
+    marginTop: 12,
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
   },
   doneButton: {
     width: '100%',

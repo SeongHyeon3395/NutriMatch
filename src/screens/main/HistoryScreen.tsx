@@ -53,6 +53,38 @@ export default function HistoryScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('전체'); // All, Meals, Products
 
+  const getGradeLabel = (grade: string) => {
+    switch (grade) {
+      case 'A':
+        return '매우좋음';
+      case 'B':
+        return '좋음';
+      case 'C':
+        return '보통';
+      case 'D':
+        return '나쁨';
+      case 'E':
+        return '매우나쁨';
+      default:
+        return grade;
+    }
+  };
+
+  const getGradeVariant = (grade: string) => {
+    switch (grade) {
+      case 'A':
+      case 'B':
+        return 'success' as const;
+      case 'C':
+        return 'warning' as const;
+      case 'D':
+      case 'E':
+        return 'danger' as const;
+      default:
+        return 'default' as const;
+    }
+  };
+
   const renderItem = ({ item }: { item: any }) => (
     <TouchableOpacity style={styles.itemCard}>
       <View style={styles.itemIconContainer}>
@@ -64,20 +96,23 @@ export default function HistoryScreen() {
       </View>
       
       <View style={styles.itemContent}>
-        <Text style={styles.itemTitle}>{item.title}</Text>
+        <Text style={styles.itemTitle} numberOfLines={1} ellipsizeMode="tail">{item.title}</Text>
         <View style={styles.itemMeta}>
           <AppIcon name="calendar-today" size={12} color={COLORS.textSecondary} />
-          <Text style={styles.itemDate}>{item.date}</Text>
+          <Text style={styles.itemDate} numberOfLines={1} ellipsizeMode="tail">{item.date}</Text>
           <Text style={styles.dot}>•</Text>
-          <Text style={styles.itemCalories}>{item.calories} kcal</Text>
+          <Text style={styles.itemCalories} numberOfLines={1} ellipsizeMode="tail">{item.calories} kcal</Text>
         </View>
       </View>
 
       <View style={styles.itemRight}>
         <Badge 
-          variant={item.grade === 'A' ? 'success' : item.grade === 'B' ? 'warning' : 'danger'} 
-          text={item.grade} 
-          style={{ width: 32, justifyContent: 'center' }}
+          variant={getGradeVariant(item.grade)}
+          text={getGradeLabel(item.grade)}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          style={{ alignSelf: 'center', maxWidth: 72 }}
+          textStyle={{ fontSize: 11 }}
         />
         <View style={{ marginLeft: 8 }}>
           <AppIcon name="chevron-right" size={22} color={COLORS.textSecondary} />
@@ -224,6 +259,7 @@ const styles = StyleSheet.create({
   },
   itemContent: {
     flex: 1,
+    minWidth: 0,
   },
   itemTitle: {
     fontSize: 16,

@@ -8,9 +8,19 @@ interface BadgeProps {
   variant?: 'default' | 'success' | 'danger' | 'warning' | 'outline' | 'secondary';
   style?: ViewStyle;
   textStyle?: TextStyle;
+  numberOfLines?: number;
+  ellipsizeMode?: 'head' | 'middle' | 'tail' | 'clip';
 }
 
-export const Badge: React.FC<BadgeProps> = ({ children, text: textProp, variant = 'default', style, textStyle }) => {
+export const Badge: React.FC<BadgeProps> = ({
+  children,
+  text: textProp,
+  variant = 'default',
+  style,
+  textStyle,
+  numberOfLines,
+  ellipsizeMode,
+}) => {
   const getStyles = () => {
     switch (variant) {
       case 'success':
@@ -36,7 +46,11 @@ export const Badge: React.FC<BadgeProps> = ({ children, text: textProp, variant 
       { backgroundColor: bg, borderColor: border }, 
       style
     ]}>
-      <Text style={[styles.text, { color: textColor }, textStyle]}>
+      <Text
+        style={[styles.text, { color: textColor }, textStyle]}
+        numberOfLines={numberOfLines}
+        ellipsizeMode={ellipsizeMode}
+      >
         {textProp || children}
       </Text>
     </View>

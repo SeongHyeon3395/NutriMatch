@@ -1,5 +1,5 @@
 import React from 'react';
-import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MainTabParamList } from './types';
 import { COLORS } from '../constants/colors';
@@ -11,33 +11,33 @@ import MealScreen from '../screens/main/MealScreen';
 import HistoryScreen from '../screens/main/HistoryScreen';
 import ProfileScreen from '../screens/main/ProfileScreen';
 
-const Tab = createMaterialTopTabNavigator<MainTabParamList>();
+const Tab = createBottomTabNavigator<MainTabParamList>();
 
 export default function MainTabNavigator() {
   const insets = useSafeAreaInsets();
 
   return (
     <Tab.Navigator
-      tabBarPosition="bottom"
       screenOptions={{
-        swipeEnabled: true,
-        animationEnabled: true,
+        headerShown: false,
+        animation: 'shift',
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.textGray,
         tabBarStyle: {
           backgroundColor: COLORS.background,
           borderTopWidth: 1,
           borderTopColor: COLORS.border,
-          height: 60 + Math.max(insets.bottom, 8),
-          paddingBottom: Math.max(insets.bottom, 8),
+          height: 64 + insets.bottom,
           paddingTop: 8,
+          paddingBottom: 8 + insets.bottom,
         },
-        tabBarIndicatorStyle: { height: 0 },
+        tabBarItemStyle: {
+          paddingVertical: 4,
+        },
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: '500',
         },
-        tabBarShowIcon: true,
       }}
     >
       <Tab.Screen

@@ -23,7 +23,7 @@ export default function FoodResultScreen() {
   // 임시: 사용자 분석이 없으면 기본값
   const userAnalysis = analysis.userAnalysis || {
     grade: 'neutral',
-    reasons: ['분석 결과입니다.'],
+    reasons: ['분석 내용을 정리했어요.'],
     warnings: [],
     alternatives: [],
     tips: [],
@@ -77,7 +77,7 @@ export default function FoodResultScreen() {
 
         {userAnalysis.reasons && userAnalysis.reasons.length > 0 && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>💡 분석 결과</Text>
+            <Text style={styles.sectionTitle}>💡 이렇게 나왔어요</Text>
             {userAnalysis.reasons.map((reason, idx) => (
               <View key={idx} style={styles.listItem}>
                 <Text style={styles.bullet}>•</Text>
@@ -89,7 +89,7 @@ export default function FoodResultScreen() {
 
         {userAnalysis.warnings && userAnalysis.warnings.length > 0 && (
           <View style={[styles.card, styles.warningCard]}>
-            <Text style={styles.warningTitle}>⚠️ 주의사항</Text>
+            <Text style={styles.warningTitle}>⚠️ 조심해요</Text>
             {userAnalysis.warnings.map((warning, idx) => (
               <View key={idx} style={styles.listItem}>
                 <Text style={styles.bullet}>•</Text>
@@ -113,7 +113,7 @@ export default function FoodResultScreen() {
 
         {userAnalysis.tips && userAnalysis.tips.length > 0 && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>💬 섭취 팁</Text>
+            <Text style={styles.sectionTitle}>💬 이렇게 먹어보세요</Text>
             {userAnalysis.tips.map((tip, idx) => (
               <View key={idx} style={styles.listItem}>
                 <Text style={styles.bullet}>•</Text>

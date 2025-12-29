@@ -67,8 +67,8 @@ export default function VerifyScreen() {
         </TouchableOpacity>
       </View>
       <View style={styles.content}>
-        <Text style={styles.title}>이미지 확인</Text>
-        <Text style={styles.subtitle}>음식이 잘 보이는지 확인해주세요</Text>
+        <Text style={styles.title}>사진 확인</Text>
+        <Text style={styles.subtitle}>글자/음식이 선명하게 보이면 더 정확해요</Text>
         
         <View style={styles.imageContainer}>
           <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
@@ -84,7 +84,7 @@ export default function VerifyScreen() {
             disabled={isAnalyzing}
           />
           <Button 
-            title={isAnalyzing ? "분석 중..." : "분석하기"} 
+            title={isAnalyzing ? "분석 중..." : "분석 시작"} 
             onPress={handleAnalyze} 
             icon={isAnalyzing ? <ActivityIndicator color="white" /> : <AppIcon name="check" size={20} color="white" />}
             style={styles.button}

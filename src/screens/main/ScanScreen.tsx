@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import ImagePicker from 'react-native-image-crop-picker';
@@ -10,6 +10,19 @@ import { AppIcon } from '../../components/ui/AppIcon';
 
 export default function ScanScreen() {
   const navigation = useNavigation();
+
+  const handleTips = () => {
+    Alert.alert(
+      '촬영 팁',
+      [
+        '• 밝은 조명에서 촬영하세요',
+        '• 음식은 접시 전체가 나오게 촬영하세요',
+        '• 성분표/원재료명은 글자가 선명하게 나오게 가까이 촬영하세요',
+        '• 흔들림 없이 선명하게 촬영하세요',
+      ].join('\n'),
+      [{ text: '확인' }]
+    );
+  };
 
   const handleScan = async () => {
     try {
@@ -56,97 +69,61 @@ export default function ScanScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>성분표 스캔</Text>
+        <Text style={styles.headerTitle}>음식 분석</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* Smart Scanner Card */}
-        <Card style={styles.scannerCard}>
-          <View style={styles.scannerHeader}>
-            <View style={styles.iconContainer}>
-              <AppIcon name="manage-search" color="#FFFFFF" size={24} />
+      <View style={styles.content}>
+        <View style={styles.topContent}>
+          <Card style={styles.scannerCard}>
+            <View style={styles.scannerHeader}>
+              <View style={styles.iconContainer}>
+                <AppIcon name="manage-search" color="#FFFFFF" size={24} />
+              </View>
+              <View style={styles.scannerTextContainer}>
+                <Text style={styles.scannerTitle}>스마트 스캐너</Text>
+                <Text style={styles.scannerDesc}>
+                  음식 사진이나 포장지의 영양성분표/원재료명을 찍어주시면,
+                  AI가 빠르게 읽고 정리해드려요.
+                </Text>
+              </View>
             </View>
-            <View style={styles.scannerTextContainer}>
-              <Text style={styles.scannerTitle}>🔍 스마트 스캐너</Text>
-              <Text style={styles.scannerDesc}>
-                바코드가 있으면 자동으로 검증된 성분 정보를 가져오고,
-                없으면 OCR로 성분표를 읽습니다.
-              </Text>
+          </Card>
+
+          <Card style={styles.infoCard}>
+            <Text style={styles.cardTitle}>무엇을 찍으면 되나요?</Text>
+            <View style={styles.quickList}>
+              <Text style={styles.quickItem}>• 음식 사진 (접시 전체가 나오게)</Text>
+              <Text style={styles.quickItem}>• 영양성분표 / 원재료명 (글자 선명하게)</Text>
+              <Text style={styles.quickItem}>• 결과는 사진 기반 추정이므로 참고용이에요</Text>
             </View>
-          </View>
-          <Button 
+          </Card>
+        </View>
+
+        <View style={styles.bottomActions}>
+          <Button
             title="사진 촬영하기"
-            onPress={handleScan} 
+            onPress={handleScan}
             style={styles.scanButton}
             icon={<AppIcon name="photo-camera" color="#FFFFFF" size={20} />}
           />
           <View style={{ height: 12 }} />
-          <Button 
+          <Button
             title="사진 선택하기"
-            onPress={handleGallery} 
+            onPress={handleGallery}
             variant="outline"
             style={styles.scanButton}
             icon={<AppIcon name="photo-library" color={COLORS.primary} size={20} />}
           />
-        </Card>
-
-        {/* How it works */}
-        <Card style={styles.infoCard}>
-          <Text style={styles.cardTitle}>📋 작동 방식</Text>
-          <View style={styles.stepsContainer}>
-            {[
-              { 
-                step: '1', 
-                title: '바코드 우선 감지',
-                description: '제품 바코드가 있으면 Open Food Facts 데이터베이스에서 검증된 성분 정보를 가져옵니다.'
-              },
-              {
-                step: '2',
-                title: 'OCR 폴백',
-                description: '바코드가 없거나 등록되지 않은 제품이면 AI OCR로 성분표를 읽습니다.'
-              },
-              {
-                step: '3',
-                title: '사용자 검증 (HITL)',
-                description: 'OCR 결과를 사용자가 직접 확인하고 수정할 수 있습니다.'
-              },
-              {
-                step: '4',
-                title: 'AI 분석',
-                description: '등록된 알레르기 성분과 비교하여 안전/위험 판정을 내립니다.'
-              }
-            ].map((item, index) => (
-              <View key={index} style={styles.stepItem}>
-                <View style={styles.stepBadge}>
-                  <Text style={styles.stepBadgeText}>{item.step}</Text>
-                </View>
-                <View style={styles.stepContent}>
-                  <Text style={styles.stepTitle}>{item.title}</Text>
-                  <Text style={styles.stepDesc}>{item.description}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        </Card>
-
-        {/* Tips */}
-        <Card style={styles.tipCard}>
-          <View style={styles.tipContainer}>
-            <View style={{ marginRight: 12 }}>
-              <AppIcon name="lightbulb" color="#CA8A04" size={20} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.tipTitle}>촬영 팁</Text>
-              <View style={styles.tipList}>
-                <Text style={styles.tipItem}>• 밝은 조명에서 촬영하세요</Text>
-                <Text style={styles.tipItem}>• 성분표가 수평이 되도록 정렬하세요</Text>
-                <Text style={styles.tipItem}>• 흔들림 없이 선명하게 촬영하세요</Text>
-                <Text style={styles.tipItem}>• 바코드가 보이면 함께 촬영하세요</Text>
-              </View>
-            </View>
-          </View>
-        </Card>
-      </ScrollView>
+          <View style={{ height: 12 }} />
+          <Button
+            title="촬영 팁"
+            onPress={handleTips}
+            variant="outline"
+            style={styles.scanButton}
+            icon={<AppIcon name="lightbulb" color={COLORS.primary} size={20} />}
+          />
+        </View>
+      </View>
     </SafeAreaView>
   );
 }
@@ -161,7 +138,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
-  content: { padding: SPACING.md, gap: SPACING.lg },
+  content: { flex: 1, padding: SPACING.md },
+  topContent: { gap: SPACING.md },
+  bottomActions: { marginTop: 'auto' },
   
   // Scanner Card
   scannerCard: {
@@ -185,26 +164,7 @@ const styles = StyleSheet.create({
 
   // Info Card
   infoCard: { padding: SPACING.lg },
-  cardTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, marginBottom: SPACING.md },
-  stepsContainer: { gap: SPACING.md },
-  stepItem: { flexDirection: 'row', gap: SPACING.sm },
-  stepBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.blue100,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  stepBadgeText: { color: COLORS.primary, fontWeight: 'bold' },
-  stepContent: { flex: 1 },
-  stepTitle: { fontSize: 16, fontWeight: '600', color: COLORS.text, marginBottom: 4 },
-  stepDesc: { fontSize: 14, color: COLORS.textGray, lineHeight: 20 },
-
-  // Tip Card
-  tipCard: { padding: SPACING.md, backgroundColor: COLORS.yellow50, borderColor: COLORS.yellow200 },
-  tipContainer: { flexDirection: 'row' },
-  tipTitle: { fontSize: 16, fontWeight: 'bold', color: '#854D0E', marginBottom: 4 },
-  tipList: { gap: 2 },
-  tipItem: { fontSize: 14, color: '#A16207' },
+  cardTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: SPACING.sm },
+  quickList: { gap: 4 },
+  quickItem: { fontSize: 14, color: COLORS.textGray, lineHeight: 20 },
 });
