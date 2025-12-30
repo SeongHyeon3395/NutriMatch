@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import ImagePicker from 'react-native-image-crop-picker';
@@ -8,9 +8,11 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
+import { useAppAlert } from '../../components/ui/AppAlert';
 
 export default function MealScreen() {
   const navigation = useNavigation();
+  const { alert } = useAppAlert();
 
   const handleCamera = async () => {
     try {
@@ -28,7 +30,7 @@ export default function MealScreen() {
     } catch (error: any) {
       if (error.code !== 'E_PICKER_CANCELLED') {
         console.error('Camera Error:', error);
-        Alert.alert('오류', '카메라를 실행하는 중 문제가 발생했습니다.');
+        alert({ title: '오류', message: '카메라를 실행하는 중 문제가 발생했습니다.' });
       }
     }
   };
@@ -49,7 +51,7 @@ export default function MealScreen() {
     } catch (error: any) {
       if (error.code !== 'E_PICKER_CANCELLED') {
         console.error('Gallery Error:', error);
-        Alert.alert('오류', '갤러리를 여는 중 문제가 발생했습니다.');
+        alert({ title: '오류', message: '갤러리를 여는 중 문제가 발생했습니다.' });
       }
     }
   };

@@ -12,6 +12,7 @@ interface UserState {
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   loadProfile: () => Promise<void>;
   clearProfile: () => Promise<void>;
+  clearAllData: () => Promise<void>;
   
   addFoodLog: (log: FoodLog) => Promise<void>;
   loadFoodLogs: () => Promise<void>;
@@ -61,6 +62,11 @@ export const useUserStore = create<UserState>((set, get) => ({
   
   clearProfile: async () => {
     await AsyncStorage.removeItem(PROFILE_KEY);
+    set({ profile: null });
+  },
+
+  clearAllData: async () => {
+    await AsyncStorage.multiRemove([PROFILE_KEY, FOOD_LOGS_KEY, BODY_LOGS_KEY]);
     set({ profile: null, foodLogs: [], bodyLogs: [] });
   },
   

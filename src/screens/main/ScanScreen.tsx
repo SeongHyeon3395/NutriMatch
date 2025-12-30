@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import ImagePicker from 'react-native-image-crop-picker';
@@ -7,21 +7,24 @@ import { COLORS, SPACING, RADIUS } from '../../constants/colors';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { AppIcon } from '../../components/ui/AppIcon';
+import { Badge } from '../../components/ui/Badge';
+import { useAppAlert } from '../../components/ui/AppAlert';
 
 export default function ScanScreen() {
   const navigation = useNavigation();
+  const { alert } = useAppAlert();
 
   const handleTips = () => {
-    Alert.alert(
-      '촬영 팁',
-      [
+    alert({
+      title: '촬영 팁',
+      message: [
         '• 밝은 조명에서 촬영하세요',
         '• 음식은 접시 전체가 나오게 촬영하세요',
         '• 성분표/원재료명은 글자가 선명하게 나오게 가까이 촬영하세요',
         '• 흔들림 없이 선명하게 촬영하세요',
       ].join('\n'),
-      [{ text: '확인' }]
-    );
+      actions: [{ text: '확인', variant: 'primary' }],
+    });
   };
 
   const handleScan = async () => {
@@ -40,7 +43,7 @@ export default function ScanScreen() {
     } catch (error: any) {
       if (error.code !== 'E_PICKER_CANCELLED') {
         console.error('Camera Error:', error);
-        Alert.alert('오류', '카메라를 실행하는 중 문제가 발생했습니다.');
+        alert({ title: '오류', message: '카메라를 실행하는 중 문제가 발생했습니다.' });
       }
     }
   };
@@ -61,13 +64,13 @@ export default function ScanScreen() {
     } catch (error: any) {
       if (error.code !== 'E_PICKER_CANCELLED') {
         console.error('Gallery Error:', error);
-        Alert.alert('오류', '갤러리를 여는 중 문제가 발생했습니다.');
+        alert({ title: '오류', message: '갤러리를 여는 중 문제가 발생했습니다.' });
       }
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>음식 분석</Text>
       </View>
@@ -91,12 +94,18 @@ export default function ScanScreen() {
 
           <Card style={styles.infoCard}>
             <Text style={styles.cardTitle}>무엇을 찍으면 되나요?</Text>
+            <View style={styles.tagRow}>
+              <Badge variant="outline" text="밝은 조명" />
+              <Badge variant="outline" text="선명한 초점" />
+              <Badge variant="outline" text="전체가 보이게" />
+            </View>
             <View style={styles.quickList}>
               <Text style={styles.quickItem}>• 음식 사진 (접시 전체가 나오게)</Text>
               <Text style={styles.quickItem}>• 영양성분표 / 원재료명 (글자 선명하게)</Text>
               <Text style={styles.quickItem}>• 결과는 사진 기반 추정이므로 참고용이에요</Text>
             </View>
           </Card>
+
         </View>
 
         <View style={styles.bottomActions}>
@@ -138,7 +147,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
-  content: { flex: 1, padding: SPACING.md },
+  content: {
+    flex: 1,
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.sm,
+  },
   topContent: { gap: SPACING.md },
   bottomActions: { marginTop: 'auto' },
   
@@ -165,6 +179,7 @@ const styles = StyleSheet.create({
   // Info Card
   infoCard: { padding: SPACING.lg },
   cardTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: SPACING.sm },
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: SPACING.sm },
   quickList: { gap: 4 },
   quickItem: { fontSize: 14, color: COLORS.textGray, lineHeight: 20 },
 });

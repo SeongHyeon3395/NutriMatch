@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/colors';
@@ -7,9 +7,11 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
+import { useAppAlert } from '../../components/ui/AppAlert';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
+  const { alert } = useAppAlert();
 
   // Mock User Data
   const user = {
@@ -21,7 +23,7 @@ export default function ProfileScreen() {
   };
 
   const menuItems = [
-    { iconName: 'person', label: '개인 정보', route: 'PersonalInfo' },
+    { iconName: 'person', label: '내 정보', route: 'PersonalInfo' },
     { iconName: 'notifications', label: '알림 설정', route: 'Notifications' },
     { iconName: 'security', label: '개인정보 및 보안', route: 'Privacy' },
     { iconName: 'credit-card', label: '구독 관리', route: 'Subscription' },
@@ -29,24 +31,24 @@ export default function ProfileScreen() {
   ];
 
   const handleLogout = () => {
-    Alert.alert(
-      '로그아웃',
-      '정말 로그아웃 하시겠습니까?',
-      [
-        { text: '취소', style: 'cancel' },
-        { 
-          text: '로그아웃', 
-          style: 'destructive',
+    alert({
+      title: '로그아웃',
+      message: '정말 로그아웃 하시겠습니까?',
+      actions: [
+        { text: '취소', variant: 'outline' },
+        {
+          text: '로그아웃',
+          variant: 'danger',
           onPress: () => {
             // TODO: Clear user session/store
             navigation.reset({
               index: 0,
               routes: [{ name: 'Login' as never }],
             });
-          }
+          },
         },
-      ]
-    );
+      ],
+    });
   };
 
   return (
@@ -96,7 +98,17 @@ export default function ProfileScreen() {
         {/* Menu Items */}
         <View style={styles.menuContainer}>
           {menuItems.map((item, index) => (
-            <TouchableOpacity key={index} style={styles.menuItem}>
+            <TouchableOpacity
+              key={index}
+              style={styles.menuItem}
+              onPress={() => {
+                if (item.route === 'Privacy') {
+                  navigation.navigate('Privacy' as never);
+                  return;
+                }
+                alert({ title: item.label, message: '현재 버전에서는 준비 중인 기능입니다.' });
+              }}
+            >
               <View style={styles.menuItemLeft}>
                 <View style={styles.menuIconBox}>
                   <AppIcon name={item.iconName} size={20} color={COLORS.text} />

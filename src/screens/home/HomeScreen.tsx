@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   Platform,
   PermissionsAndroid,
   ActivityIndicator,
@@ -17,6 +16,7 @@ import ImagePicker from 'react-native-image-crop-picker';
 import { RootStackParamList } from '../../navigation/types';
 import { analyzeFoodImage } from '../../services/api';
 import { useUserStore } from '../../store/userStore';
+import { useAppAlert } from '../../components/ui/AppAlert';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -24,6 +24,7 @@ export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp>();
   const userProfile = useUserStore(state => state.profile);
   const [loading, setLoading] = useState(false);
+  const { alert } = useAppAlert();
 
   const handleCamera = async () => {
     if (Platform.OS === 'android') {
@@ -32,7 +33,7 @@ export default function HomeScreen() {
         if (!has) {
           const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
           if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-            Alert.alert('카메라 권한이 필요합니다.');
+            alert({ title: '카메라 권한이 필요합니다.' });
             return;
           }
         }
@@ -56,7 +57,7 @@ export default function HomeScreen() {
       }
     } catch (e: any) {
       if (e?.code !== 'E_PICKER_CANCELLED') {
-        Alert.alert('카메라 오류', e?.message || String(e));
+        alert({ title: '카메라 오류', message: e?.message || String(e) });
       }
     }
   };
@@ -76,7 +77,7 @@ export default function HomeScreen() {
         if (!has) {
           const granted = await PermissionsAndroid.request(perm);
           if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-            Alert.alert('갤러리 권한이 필요합니다.');
+            alert({ title: '갤러리 권한이 필요합니다.' });
             return;
           }
         }
@@ -100,7 +101,7 @@ export default function HomeScreen() {
       }
     } catch (e: any) {
       if (e?.code !== 'E_PICKER_CANCELLED') {
-        Alert.alert('갤러리 오류', e?.message || String(e));
+        alert({ title: '갤러리 오류', message: e?.message || String(e) });
       }
     }
   };
@@ -136,11 +137,10 @@ export default function HomeScreen() {
           analysisData.description.includes('429') ||
           analysisData.description.includes('RESOURCE_EXHAUSTED')
       )) {
-        Alert.alert(
-          '잠시만요',
-          '지금은 AI 분석 요청이 많아 잠깐 쉬고 있어요.\n약 1분 뒤 다시 시도해주세요.',
-          [{ text: '확인' }]
-        );
+        alert({
+          title: '잠시만요',
+          message: '지금은 AI 분석 요청이 많아 잠깐 쉬고 있어요.\n약 1분 뒤 다시 시도해주세요.',
+        });
         return;
       }
       
@@ -150,7 +150,7 @@ export default function HomeScreen() {
       });
     } catch (e: any) {
       if (__DEV__) console.error('[HomeScreen] 분석 실패:', e);
-      Alert.alert('분석 실패', e?.message || String(e));
+      alert({ title: '분석 실패', message: e?.message || String(e) });
     } finally {
       setLoading(false);
     }

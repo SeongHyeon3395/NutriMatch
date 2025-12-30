@@ -11,6 +11,7 @@ import VerifyScreen from '../screens/scan/VerifyScreen';
 import ResultScreen from '../screens/scan/ResultScreen';
 import HomeScreen from '../screens/home/HomeScreen'; // Keep for legacy if needed, or remove
 import FoodResultScreen from '../screens/home/FoodResultScreen';
+import PrivacySecurityScreen from '../screens/main/PrivacySecurityScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -28,6 +29,9 @@ export default function RootNavigator() {
         {/* Scan Flow */}
         <Stack.Screen name="Verify" component={VerifyScreen} />
         <Stack.Screen name="Result" component={ResultScreen} />
+
+        {/* Settings */}
+        <Stack.Screen name="Privacy" component={PrivacySecurityScreen} />
 
         {/* Legacy / Fallback */}
         <Stack.Screen name="Home" component={HomeScreen} />

@@ -7,6 +7,7 @@ export type RootStackParamList = {
   MainTab: NavigatorScreenParams<MainTabParamList> | undefined;
   Verify: { imageUri: string; ocrText?: string };
   Result: { analysis: FoodAnalysis; imageUri: string };
+  Privacy: undefined;
   // Legacy
   Home: undefined;
   FoodResult: { analysis: FoodAnalysis; imageUri: string };

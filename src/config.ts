@@ -1,4 +1,9 @@
-import { BASE_URL as ENV_BASE_URL, SUPABASE_ANON_KEY as ENV_SUPABASE_ANON_KEY, SUPABASE_URL as ENV_SUPABASE_URL } from '@env';
+import {
+  BASE_URL as ENV_BASE_URL,
+  SUPABASE_ANON_KEY as ENV_SUPABASE_ANON_KEY,
+  SUPABASE_URL as ENV_SUPABASE_URL,
+  PRIVACY_POLICY_URL as ENV_PRIVACY_POLICY_URL,
+} from '@env';
 // Debug 로그: 개발 중 BASE_URL 로딩 문제 추적용
 if (__DEV__) {
   // eslint-disable-next-line no-console
@@ -68,6 +73,9 @@ export const ENDPOINTS = {
 // Supabase client headers
 // Use anon key for public functions or user access token for authenticated calls.
 export const SUPABASE_ANON_KEY = ENV_SUPABASE_ANON_KEY || '';
+
+// External link (required by store policies). If empty, UI will prompt you to set it.
+export const PRIVACY_POLICY_URL = (ENV_PRIVACY_POLICY_URL || '').trim();
 export function buildSupabaseHeaders(token?: string) {
   const bearer = token || SUPABASE_ANON_KEY;
   return {

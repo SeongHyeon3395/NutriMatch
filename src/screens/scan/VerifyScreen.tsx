@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Image, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Image, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { COLORS } from '../../constants/colors';
@@ -7,12 +7,14 @@ import { Button } from '../../components/ui/Button';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { analyzeFoodImage } from '../../services/api';
 import { FoodAnalysis } from '../../types/user';
+import { useAppAlert } from '../../components/ui/AppAlert';
 
 export default function VerifyScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const { imageUri } = route.params as { imageUri: string };
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const { alert } = useAppAlert();
 
   const handleRetake = () => {
     navigation.goBack();
@@ -53,7 +55,10 @@ export default function VerifyScreen() {
       });
     } catch (error: any) {
       console.error(error);
-      Alert.alert('분석 실패', error.message || '음식 분석 중 오류가 발생했습니다.');
+      alert({
+        title: '분석 실패',
+        message: error.message || '음식 분석 중 오류가 발생했습니다.',
+      });
     } finally {
       setIsAnalyzing(false);
     }
