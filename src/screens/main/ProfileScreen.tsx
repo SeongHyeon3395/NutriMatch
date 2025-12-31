@@ -40,7 +40,7 @@ export default function ProfileScreen() {
           variant: 'danger',
           onPress: async () => {
             try {
-              await supabase.auth.signOut();
+              await supabase?.auth.signOut();
             } catch {
               // ignore
             }
@@ -145,12 +145,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.backgroundGray,
   },
   scrollContent: {
-    padding: 20,
+    padding: 16,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   avatarContainer: {
     width: 64,
@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
   statsContainer: {
     flexDirection: 'row',
     gap: 12,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   statCard: {
     flex: 1,
@@ -213,7 +213,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 24,
+    marginBottom: 16,
     shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 16,
     padding: 8,
-    marginBottom: 24,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    padding: 14,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
@@ -276,9 +276,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
+    padding: 14,
     gap: 8,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   logoutText: {
     fontSize: 16,

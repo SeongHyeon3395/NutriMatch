@@ -50,7 +50,7 @@ export default function SettingsScreen() {
           variant: 'danger',
           onPress: async () => {
             try {
-              await supabase.auth.signOut();
+              await supabase?.auth.signOut();
             } catch {
               // ignore
             }

@@ -20,6 +20,11 @@ function deriveSupabaseUrl(): string {
 }
 
 const url = (SUPABASE_URL || deriveSupabaseUrl()).replace(/\/$/, '');
-export const supabase = createClient(url, SUPABASE_ANON_KEY, {
-  auth: { persistSession: false },
-});
+
+export const isSupabaseConfigured = Boolean(url) && Boolean(SUPABASE_ANON_KEY);
+
+export const supabase = isSupabaseConfigured
+  ? createClient(url, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false },
+    })
+  : null;

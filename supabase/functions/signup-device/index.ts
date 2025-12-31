@@ -27,6 +27,17 @@ function usernameToEmail(username: string) {
   return `${username}@nutrimatch.local`;
 }
 
+function toOptionalText(value: unknown) {
+  const v = String(value ?? '').trim();
+  return v ? v : null;
+}
+
+function toOptionalInt(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json(405, { ok: false, message: 'POST only' });
@@ -44,6 +55,35 @@ serve(async (req: Request) => {
     const nickname = String(body?.nickname ?? '').trim();
     const password = String(body?.password ?? '');
     const deviceId = String(body?.deviceId ?? '').trim();
+
+    // Optional profile fields (for onboarding/edit flows)
+    const bodyGoal = toOptionalText(body?.bodyGoal ?? body?.body_goal);
+    const healthDiet = toOptionalText(body?.healthDiet ?? body?.health_diet);
+    const lifestyleDiet = toOptionalText(body?.lifestyleDiet ?? body?.lifestyle_diet);
+    const onboardingCompletedRaw = body?.onboardingCompleted ?? body?.onboarding_completed;
+    const onboardingCompleted =
+      onboardingCompletedRaw === undefined || onboardingCompletedRaw === null
+        ? null
+        : Boolean(onboardingCompletedRaw);
+
+    let allergens: string[] | null = null;
+    const allergensRaw = body?.allergens;
+    if (Array.isArray(allergensRaw)) {
+      const cleaned = allergensRaw
+        .map(a => String(a ?? '').trim())
+        .filter(Boolean);
+      allergens = cleaned;
+    } else if (typeof allergensRaw === 'string') {
+      const cleaned = allergensRaw
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      allergens = cleaned;
+    }
+
+    const planId = toOptionalText(body?.planId ?? body?.plan_id);
+    const premiumQuotaRemaining = toOptionalInt(body?.premiumQuotaRemaining ?? body?.premium_quota_remaining);
+    const freeImageQuotaRemaining = toOptionalInt(body?.freeImageQuotaRemaining ?? body?.free_image_quota_remaining);
 
     if (!username) return json(400, { ok: false, message: '아이디가 필요합니다.' });
     if (!nickname) return json(400, { ok: false, message: '닉네임이 필요합니다.' });
@@ -86,6 +126,12 @@ serve(async (req: Request) => {
         username,
         nickname,
         device_id: deviceId,
+        body_goal: bodyGoal,
+        health_diet: healthDiet,
+        lifestyle_diet: lifestyleDiet,
+        allergens,
+        onboarding_completed: onboardingCompleted,
+        plan_id: planId,
       },
     });
     if (createErr) {
@@ -100,14 +146,25 @@ serve(async (req: Request) => {
 
     // 2) 앱 프로필 테이블에 저장(아이디/닉네임/기기ID)
     // 기존 스키마 호환을 위해 password_hash/password_salt는 nullable로 전환되어 있어야 합니다.
+    const appUserRow: Record<string, unknown> = {
+      id: authUserId,
+      username,
+      nickname,
+      device_id: deviceId,
+    };
+
+    if (bodyGoal) appUserRow.body_goal = bodyGoal;
+    if (healthDiet) appUserRow.health_diet = healthDiet;
+    if (lifestyleDiet) appUserRow.lifestyle_diet = lifestyleDiet;
+    if (Array.isArray(allergens)) appUserRow.allergens = allergens;
+    if (onboardingCompleted !== null) appUserRow.onboarding_completed = onboardingCompleted;
+    if (planId) appUserRow.plan_id = planId;
+    if (premiumQuotaRemaining !== null) appUserRow.premium_quota_remaining = premiumQuotaRemaining;
+    if (freeImageQuotaRemaining !== null) appUserRow.free_image_quota_remaining = freeImageQuotaRemaining;
+
     const { data: inserted, error: insertErr } = await supabase
       .from('app_users')
-      .insert({
-        id: authUserId,
-        username,
-        nickname,
-        device_id: deviceId,
-      })
+      .insert(appUserRow)
       .select('id')
       .single();
 

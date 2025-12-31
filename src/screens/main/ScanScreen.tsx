@@ -158,11 +158,11 @@ const styles = StyleSheet.create({
   
   // Scanner Card
   scannerCard: {
-    padding: SPACING.lg,
+    padding: SPACING.md,
     backgroundColor: COLORS.blue50,
     borderColor: COLORS.blue200,
   },
-  scannerHeader: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.lg },
+  scannerHeader: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.md },
   iconContainer: {
     width: 48,
     height: 48,
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
   scanButton: { width: '100%' },
 
   // Info Card
-  infoCard: { padding: SPACING.lg },
+  infoCard: { padding: SPACING.md },
   cardTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: SPACING.sm },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: SPACING.sm },
   quickList: { gap: 4 },

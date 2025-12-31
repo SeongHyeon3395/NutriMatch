@@ -1,8 +1,9 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { COLORS, SPACING, RADIUS } from '../../constants/colors';
 import { Card } from './Card';
 import { Button } from './Button';
+import { AppIcon } from './AppIcon';
 
 export type AppAlertActionVariant = 'primary' | 'outline' | 'danger';
 
@@ -64,10 +65,15 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
 
           <View style={styles.center} pointerEvents="box-none">
             <Card style={styles.alertCard}>
-              <Text style={styles.title}>{options.title}</Text>
+              <View style={styles.titleRow}>
+                <Text style={styles.title}>{options.title}</Text>
+                <TouchableOpacity onPress={dismiss} style={styles.closeButton} accessibilityRole="button">
+                  <AppIcon name="close" size={20} color={COLORS.textGray} />
+                </TouchableOpacity>
+              </View>
               {!!options.message && <Text style={styles.message}>{options.message}</Text>}
 
-              <View style={[styles.actions, isTwoActions && styles.actionsRow]}>
+              <ScrollView style={styles.actionsScroll} contentContainerStyle={[styles.actions, isTwoActions && styles.actionsRow]}>
                 {actions.map((action, idx) => (
                   <Button
                     key={`${action.text}-${idx}`}
@@ -77,7 +83,7 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
                     style={isTwoActions ? styles.actionButtonHalf : styles.actionButtonFull}
                   />
                 ))}
-              </View>
+              </ScrollView>
             </Card>
           </View>
         </View>
@@ -115,11 +121,25 @@ const styles = StyleSheet.create({
     padding: SPACING.lg,
     borderRadius: RADIUS.md,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   title: {
+    flex: 1,
     fontSize: 18,
     fontWeight: '700',
     color: COLORS.text,
     marginBottom: SPACING.sm,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
   },
   message: {
     fontSize: 14,
@@ -129,6 +149,9 @@ const styles = StyleSheet.create({
   actions: {
     marginTop: SPACING.lg,
     gap: 12,
+  },
+  actionsScroll: {
+    maxHeight: 360,
   },
   actionsRow: {
     flexDirection: 'row',

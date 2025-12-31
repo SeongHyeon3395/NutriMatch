@@ -15,7 +15,8 @@ import { useUserStore } from '../../store/userStore';
 import { COLORS } from '../../constants/colors';
 import { Button } from '../../components/ui/Button';
 import { useAppAlert } from '../../components/ui/AppAlert';
-import { supabase } from '../../services/supabaseClient';
+import { isSupabaseConfigured, supabase } from '../../services/supabaseClient';
+import { AppIcon } from '../../components/ui/AppIcon';
 
 function GoogleMark({ size = 18 }: { size?: number }) {
   // 브랜드 에셋을 직접 포함하지 않고, 앱 팔레트로 "구글 느낌"을 맞춘 단순 마크입니다.
@@ -40,11 +41,13 @@ export default function LoginScreen() {
   const navigation = useNavigation<NavigationProp>();
   const profile = useUserStore(state => state.profile);
   const clearProfile = useUserStore(state => state.clearProfile);
+  const setProfile = useUserStore(state => state.setProfile);
   const { alert } = useAppAlert();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const authEmail = useMemo(() => {
     const u = username.trim();
@@ -64,6 +67,14 @@ export default function LoginScreen() {
 
     try {
       setLoggingIn(true);
+      if (!isSupabaseConfigured || !supabase) {
+        alert({
+          title: '로그인 설정 필요',
+          message: '현재 Supabase 설정이 없어 로그인할 수 없습니다.\n하단 마스터 버튼으로 테스트 진입은 가능합니다.',
+        });
+        return;
+      }
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email: authEmail,
         password,
@@ -82,6 +93,28 @@ export default function LoginScreen() {
     }
   };
 
+  const handleMasterLogin = async () => {
+    const now = new Date().toISOString();
+    await setProfile({
+      id: 'local-master',
+      email: 'master@nutrimatch.local',
+      name: '마스터',
+      username: 'master',
+      nickname: '마스터',
+      bodyGoal: 'maintenance',
+      healthDiet: 'none_health',
+      lifestyleDiet: 'none_lifestyle',
+      allergens: ['참외', '오이'],
+      onboardingCompleted: true,
+      createdAt: now,
+      updatedAt: now,
+      plan_id: 'master',
+      premium_quota_remaining: 999999,
+      free_image_quota_remaining: 999999,
+    });
+    navigation.replace('MainTab');
+  };
+
   const handleFindEmail = () => {
     alert({ title: '이메일 찾기', message: '현재 버전에서는 준비 중인 기능입니다.' });
   };
@@ -91,7 +124,8 @@ export default function LoginScreen() {
   };
 
   const handleTestLogin = () => {
-    navigation.replace('MainTab');
+    // backward compatibility: keep existing handler name but route to master
+    void handleMasterLogin();
   };
 
   const handleNewStart = async () => {
@@ -125,17 +159,31 @@ export default function LoginScreen() {
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>비밀번호</Text>
-              <TextInput
-                value={password}
-                onChangeText={setPassword}
-                placeholder="비밀번호"
-                placeholderTextColor={COLORS.textGray}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.input}
-                returnKeyType="done"
-              />
+              <View style={styles.passwordRow}>
+                <TextInput
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="비밀번호"
+                  placeholderTextColor={COLORS.textGray}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={[styles.input, styles.passwordInput]}
+                  returnKeyType="done"
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(v => !v)}
+                  style={styles.eyeButton}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'}
+                >
+                  <AppIcon
+                    name={showPassword ? 'visibility-off' : 'visibility'}
+                    size={22}
+                    color={COLORS.textSecondary}
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
 
@@ -176,7 +224,7 @@ export default function LoginScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.testButton} onPress={handleTestLogin}>
-          <Text style={styles.testButtonText}>테스트</Text>
+          <Text style={styles.testButtonText}>마스터</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -230,6 +278,22 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     color: COLORS.text,
+  },
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  passwordInput: {
+    flex: 1,
+    paddingRight: 46,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 12,
+    height: 44,
+    width: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   linkRow: {
     flexDirection: 'row',

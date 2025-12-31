@@ -27,12 +27,12 @@ export default function MainTabNavigator() {
           backgroundColor: COLORS.background,
           borderTopWidth: 1,
           borderTopColor: COLORS.border,
-          height: 64 + insets.bottom,
-          paddingTop: 8,
-          paddingBottom: 8 + insets.bottom,
+          height: 56 + insets.bottom,
+          paddingTop: 6,
+          paddingBottom: 6 + insets.bottom,
         },
         tabBarItemStyle: {
-          paddingVertical: 4,
+          paddingVertical: 2,
         },
         tabBarLabelStyle: {
           fontSize: 12,

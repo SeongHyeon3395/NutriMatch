@@ -139,7 +139,7 @@ serve(async (req: Request) => {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const base64 = encodeBase64(bytes);
     const apiKey = Deno.env.get('GEMINI_API_KEY');
-    const model = Deno.env.get('GEMINI_MODEL') || 'gemini-1.5-flash';
+    const model = Deno.env.get('GEMINI_MODEL') || 'gemini-1.5-flash'; 
 
     let geminiData: any = null;
     let geminiNotice = "";
@@ -153,15 +153,6 @@ serve(async (req: Request) => {
     }
 
     geminiData = await callGemini(base64, file.type || 'image/jpeg', model, apiKey);
-
-    // Model fallback: some keys/projects have 0 quota for gemini-2.0-* free tier.
-    if (geminiData?.error && geminiData?.status === 429 && model !== 'gemini-1.5-flash') {
-      const fallbackModel = 'gemini-1.5-flash';
-      const fallbackData = await callGemini(base64, file.type || 'image/jpeg', fallbackModel, apiKey);
-      if (!fallbackData?.error) {
-        geminiData = fallbackData;
-      }
-    }
 
     if (geminiData?.error) {
       const status = typeof geminiData.status === 'number' ? geminiData.status : 502;

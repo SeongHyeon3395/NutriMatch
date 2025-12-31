@@ -8,8 +8,10 @@ export type RootStackParamList = {
   MainTab: NavigatorScreenParams<MainTabParamList> | undefined;
   Verify: { imageUri: string; ocrText?: string };
   Result: { analysis: FoodAnalysis; imageUri: string };
+  EditAllergens: undefined;
   Settings: undefined;
   PersonalInfo: undefined;
+  EditPersonalInfo: undefined;
   Privacy: undefined;
   Terms: undefined;
   PrivacyPolicy: undefined;

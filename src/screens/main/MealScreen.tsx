@@ -134,10 +134,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.backgroundGray,
   },
   scrollContent: {
-    padding: 20,
+    padding: 16,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 16,
   },
   title: {
     fontSize: 28,
@@ -151,8 +151,8 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     alignItems: 'center',
-    padding: 24,
-    marginBottom: 32,
+    padding: 16,
+    marginBottom: 20,
   },
   iconCircle: {
     width: 64,
@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textSecondary,
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
     lineHeight: 20,
   },
   buttonGroup: {
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   section: {
-    marginBottom: 24,
+    marginBottom: 16,
   },
   sectionHeader: {
     flexDirection: 'row',

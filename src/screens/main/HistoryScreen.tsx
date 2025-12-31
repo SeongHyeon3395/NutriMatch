@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.backgroundGray,
   },
   header: {
-    padding: 20,
+    padding: 16,
     backgroundColor: COLORS.backgroundGray,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: COLORS.text,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   searchContainer: {
     flexDirection: 'row',
@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
     height: 48,
     borderWidth: 1,
     borderColor: COLORS.border,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   searchIcon: {
     marginRight: 8,
@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   listContent: {
-    padding: 20,
+    padding: 16,
   },
   itemCard: {
     flexDirection: 'row',

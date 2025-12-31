@@ -294,7 +294,7 @@ export default function OnboardingScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
-        {renderHeader()}
+        {(step === 2 || step === 3) && renderHeader()}
         {renderProgressBar()}
 
         {step === 1 && renderStep1()}

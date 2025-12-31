@@ -1,8 +1,16 @@
 import { supabase } from './supabaseClient';
 import type { BodyLog, FoodLog, UserProfile } from '../types/user';
 
+function requireSupabase() {
+  if (!supabase) {
+    throw new Error('Supabase 설정이 없습니다. (로컬 모드)');
+  }
+  return supabase;
+}
+
 export async function getSessionUserId(): Promise<string | null> {
-  const { data, error } = await supabase.auth.getSession();
+  const client = requireSupabase();
+  const { data, error } = await client.auth.getSession();
   if (error) throw error;
   return data.session?.user?.id ?? null;
 }
@@ -11,7 +19,8 @@ export async function fetchMyAppUser() {
   const userId = await getSessionUserId();
   if (!userId) throw new Error('로그인이 필요합니다.');
 
-  const { data, error } = await supabase
+  const client = requireSupabase();
+  const { data, error } = await client
     .from('app_users')
     .select('*')
     .eq('id', userId)
@@ -25,7 +34,8 @@ export async function updateMyAppUser(updates: Partial<UserProfile>) {
   const userId = await getSessionUserId();
   if (!userId) throw new Error('로그인이 필요합니다.');
 
-  const { data, error } = await supabase
+  const client = requireSupabase();
+  const { data, error } = await client
     .from('app_users')
     .update(updates as any)
     .eq('id', userId)
@@ -49,7 +59,8 @@ export async function insertFoodLogRemote(log: Omit<FoodLog, 'id'>) {
     notes: log.notes ?? null,
   };
 
-  const { data, error } = await supabase.from('food_logs').insert(row).select('*').single();
+  const client = requireSupabase();
+  const { data, error } = await client.from('food_logs').insert(row).select('*').single();
   if (error) throw error;
   return data;
 }
@@ -58,7 +69,8 @@ export async function listFoodLogsRemote(limit = 50) {
   const userId = await getSessionUserId();
   if (!userId) throw new Error('로그인이 필요합니다.');
 
-  const { data, error } = await supabase
+  const client = requireSupabase();
+  const { data, error } = await client
     .from('food_logs')
     .select('*')
     .eq('user_id', userId)
@@ -81,7 +93,8 @@ export async function insertBodyLogRemote(log: Omit<BodyLog, 'id'>) {
     occurred_at: log.timestamp,
   };
 
-  const { data, error } = await supabase.from('body_logs').insert(row).select('*').single();
+  const client = requireSupabase();
+  const { data, error } = await client.from('body_logs').insert(row).select('*').single();
   if (error) throw error;
   return data;
 }
@@ -90,7 +103,8 @@ export async function listBodyLogsRemote(limit = 50) {
   const userId = await getSessionUserId();
   if (!userId) throw new Error('로그인이 필요합니다.');
 
-  const { data, error } = await supabase
+  const client = requireSupabase();
+  const { data, error } = await client
     .from('body_logs')
     .select('*')
     .eq('user_id', userId)
