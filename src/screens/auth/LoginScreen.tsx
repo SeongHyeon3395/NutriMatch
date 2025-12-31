@@ -15,6 +15,7 @@ import { useUserStore } from '../../store/userStore';
 import { COLORS } from '../../constants/colors';
 import { Button } from '../../components/ui/Button';
 import { useAppAlert } from '../../components/ui/AppAlert';
+import { supabase } from '../../services/supabaseClient';
 
 function GoogleMark({ size = 18 }: { size?: number }) {
   // 브랜드 에셋을 직접 포함하지 않고, 앱 팔레트로 "구글 느낌"을 맞춘 단순 마크입니다.
@@ -41,40 +42,52 @@ export default function LoginScreen() {
   const clearProfile = useUserStore(state => state.clearProfile);
   const { alert } = useAppAlert();
 
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [loggingIn, setLoggingIn] = useState(false);
+
+  const authEmail = useMemo(() => {
+    const u = username.trim();
+    // Supabase Auth는 기본적으로 email/password 기반이므로, 아이디를 내부 이메일로 매핑합니다.
+    return u ? `${u}@nutrimatch.local` : '';
+  }, [username]);
 
   const canLogin = useMemo(() => {
-    return email.trim().length > 0 && password.length > 0;
-  }, [email, password]);
+    return username.trim().length > 0 && password.length > 0 && !loggingIn;
+  }, [loggingIn, password, username]);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!canLogin) {
-      alert({ title: '입력이 필요해요', message: '이메일과 비밀번호를 입력해주세요.' });
+      alert({ title: '입력이 필요해요', message: '아이디와 비밀번호를 입력해주세요.' });
       return;
     }
-    // TODO: 서버 로그인 연동 전 임시(앱 내부 로그인)
-    navigation.replace('MainTab');
+
+    try {
+      setLoggingIn(true);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: authEmail,
+        password,
+      });
+      if (error) throw error;
+      if (!data?.session) throw new Error('세션 생성에 실패했습니다.');
+
+      navigation.replace('MainTab');
+    } catch (e: any) {
+      alert({
+        title: '로그인 실패',
+        message: e?.message || String(e),
+      });
+    } finally {
+      setLoggingIn(false);
+    }
   };
 
-  const handleAccountFind = () => {
-    alert({
-      title: '계정 찾기',
-      message: '찾으려는 항목을 선택해주세요.',
-      actions: [
-        {
-          text: '이메일 찾기',
-          variant: 'outline',
-          onPress: () => alert({ title: '이메일 찾기', message: '현재 버전에서는 준비 중인 기능입니다.' }),
-        },
-        {
-          text: '비밀번호 찾기',
-          variant: 'primary',
-          onPress: () => alert({ title: '비밀번호 찾기', message: '현재 버전에서는 준비 중인 기능입니다.' }),
-        },
-        { text: '취소', variant: 'outline' },
-      ],
-    });
+  const handleFindEmail = () => {
+    alert({ title: '이메일 찾기', message: '현재 버전에서는 준비 중인 기능입니다.' });
+  };
+
+  const handleFindPassword = () => {
+    alert({ title: '비밀번호 찾기', message: '현재 버전에서는 준비 중인 기능입니다.' });
   };
 
   const handleTestLogin = () => {
@@ -97,13 +110,12 @@ export default function LoginScreen() {
         <View style={styles.form}>
           <View style={styles.inputStack}>
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>이메일</Text>
+              <Text style={styles.inputLabel}>아이디</Text>
               <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="email@example.com"
+                value={username}
+                onChangeText={setUsername}
+                placeholder="아이디"
                 placeholderTextColor={COLORS.textGray}
-                keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
                 style={styles.input}
@@ -127,18 +139,19 @@ export default function LoginScreen() {
             </View>
           </View>
 
-          <Button title="로그인" onPress={handleLogin} disabled={!canLogin} style={{ width: '100%' }} />
+          <Button title="로그인" onPress={handleLogin} disabled={!canLogin} loading={loggingIn} style={{ width: '100%' }} />
 
           <View style={styles.linkRow}>
-            <TouchableOpacity
-              onPress={() => alert({ title: '회원가입', message: '현재 버전에서는 준비 중인 기능입니다.' })}
-              style={styles.signupLink}
-            >
+            <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
               <Text style={styles.signupLinkText}>회원가입</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity onPress={handleAccountFind} style={styles.accountFindLink}>
-              <Text style={styles.signupLinkText}>계정 찾기</Text>
+            <Text style={styles.findDivider}>|</Text>
+            <TouchableOpacity onPress={handleFindEmail}>
+              <Text style={styles.signupLinkText}>이메일 찾기</Text>
+            </TouchableOpacity>
+            <Text style={styles.findDivider}>|</Text>
+            <TouchableOpacity onPress={handleFindPassword}>
+              <Text style={styles.signupLinkText}>비밀번호 찾기</Text>
             </TouchableOpacity>
           </View>
 
@@ -221,17 +234,27 @@ const styles = StyleSheet.create({
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingVertical: 7,
+    paddingHorizontal: 8,
     width: '100%',
-    maxWidth: 260,
-    alignSelf: 'center',
+    alignSelf: 'stretch',
   },
   signupLink: {
     alignItems: 'flex-start',
   },
   accountFindLink: {
     alignItems: 'flex-end',
+  },
+  findRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  findDivider: {
+    marginHorizontal: 8,
+    fontSize: 13,
+    color: COLORS.textSecondary,
   },
   signupLinkText: {
     fontSize: 13,

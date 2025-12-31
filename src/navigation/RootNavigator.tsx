@@ -5,6 +5,7 @@ import { RootStackParamList } from './types';
 
 // Screens
 import LoginScreen from '../screens/auth/LoginScreen';
+import SignupScreen from '../screens/auth/SignupScreen';
 import OnboardingScreen from '../screens/onboarding/OnboardingScreen';
 import MainTabNavigator from './MainTabNavigator';
 import VerifyScreen from '../screens/scan/VerifyScreen';
@@ -12,6 +13,10 @@ import ResultScreen from '../screens/scan/ResultScreen';
 import HomeScreen from '../screens/home/HomeScreen'; // Keep for legacy if needed, or remove
 import FoodResultScreen from '../screens/home/FoodResultScreen';
 import PrivacySecurityScreen from '../screens/main/PrivacySecurityScreen';
+import TermsScreen from '../screens/main/TermsScreen';
+import PrivacyPolicyScreen from '../screens/main/PrivacyPolicyScreen';
+import SettingsScreen from '../screens/main/SettingsScreen';
+import PersonalInfoScreen from '../screens/main/PersonalInfoScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -23,6 +28,7 @@ export default function RootNavigator() {
         screenOptions={{ headerShown: false }}
       >
         <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Signup" component={SignupScreen} />
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="MainTab" component={MainTabNavigator} />
         
@@ -31,7 +37,11 @@ export default function RootNavigator() {
         <Stack.Screen name="Result" component={ResultScreen} />
 
         {/* Settings */}
+        <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="PersonalInfo" component={PersonalInfoScreen} />
         <Stack.Screen name="Privacy" component={PrivacySecurityScreen} />
+        <Stack.Screen name="Terms" component={TermsScreen} />
+        <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
 
         {/* Legacy / Fallback */}
         <Stack.Screen name="Home" component={HomeScreen} />

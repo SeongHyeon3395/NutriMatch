@@ -68,6 +68,8 @@ export const ENDPOINTS = {
   // Active Supabase Edge Functions
   analyzeFoodImage: '/analyze-food-image',
   health: '/health',
+  signupDevice: '/signup-device',
+  checkUsername: '/check-username',
 } as const;
 
 // Supabase client headers

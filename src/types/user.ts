@@ -8,6 +8,10 @@ export interface UserProfile {
   id: string;
   email: string;
   name: string;
+
+  // App account fields (optional for compatibility)
+  username?: string;
+  nickname?: string;
   
   // New fields
   bodyGoal: BodyGoalType;

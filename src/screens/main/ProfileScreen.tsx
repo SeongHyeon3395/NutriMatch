@@ -8,19 +8,18 @@ import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
+import { useUserStore } from '../../store/userStore';
+import { supabase } from '../../services/supabaseClient';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
   const { alert } = useAppAlert();
 
-  // Mock User Data
-  const user = {
-    name: '홍길동',
-    email: 'hong@example.com',
-    plan: '무료',
-    scansThisMonth: 12,
-    avgGrade: 'B+',
-  };
+  const profile = useUserStore(state => state.profile);
+
+  const userName = profile?.nickname || profile?.name || '사용자';
+  const userEmail = profile?.email || '';
+  const plan = profile?.plan_id ? String(profile.plan_id) : 'free';
 
   const menuItems = [
     { iconName: 'person', label: '내 정보', route: 'PersonalInfo' },
@@ -39,8 +38,12 @@ export default function ProfileScreen() {
         {
           text: '로그아웃',
           variant: 'danger',
-          onPress: () => {
-            // TODO: Clear user session/store
+          onPress: async () => {
+            try {
+              await supabase.auth.signOut();
+            } catch {
+              // ignore
+            }
             navigation.reset({
               index: 0,
               routes: [{ name: 'Login' as never }],
@@ -57,16 +60,16 @@ export default function ProfileScreen() {
         {/* Header Profile Section */}
         <View style={styles.header}>
           <View style={styles.avatarContainer}>
-            <Text style={styles.avatarText}>{user.name.charAt(0)}</Text>
+            <Text style={styles.avatarText}>{userName.charAt(0)}</Text>
           </View>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{user.name}</Text>
-            <Text style={styles.userEmail}>{user.email}</Text>
+            <Text style={styles.userName}>{userName}</Text>
+            {!!userEmail && <Text style={styles.userEmail}>{userEmail}</Text>}
             <View style={styles.planBadge}>
-              <Badge variant="secondary" text={user.plan + ' 플랜'} />
+              <Badge variant="secondary" text={plan + ' 플랜'} />
             </View>
           </View>
-          <TouchableOpacity style={styles.settingsButton}>
+          <TouchableOpacity style={styles.settingsButton} onPress={() => navigation.navigate('Settings' as never)}>
             <AppIcon name="settings" size={24} color={COLORS.text} />
           </TouchableOpacity>
         </View>
@@ -74,11 +77,11 @@ export default function ProfileScreen() {
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
           <Card style={styles.statCard}>
-            <Text style={styles.statValue}>{user.scansThisMonth}</Text>
+            <Text style={styles.statValue}>-</Text>
             <Text style={styles.statLabel}>이번 달 스캔</Text>
           </Card>
           <Card style={styles.statCard}>
-            <Text style={styles.statValue}>{user.avgGrade}</Text>
+            <Text style={styles.statValue}>-</Text>
             <Text style={styles.statLabel}>평균 등급</Text>
           </Card>
         </View>
@@ -102,6 +105,10 @@ export default function ProfileScreen() {
               key={index}
               style={styles.menuItem}
               onPress={() => {
+                if (item.route === 'PersonalInfo') {
+                  navigation.navigate('PersonalInfo' as never);
+                  return;
+                }
                 if (item.route === 'Privacy') {
                   navigation.navigate('Privacy' as never);
                   return;
