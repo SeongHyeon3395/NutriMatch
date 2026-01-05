@@ -1,8 +1,10 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Modal, StatusBar, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import ImagePicker from 'react-native-image-crop-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Svg, { Defs, Mask, Rect } from 'react-native-svg';
 import { COLORS, SPACING, RADIUS } from '../../constants/colors';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -13,6 +15,64 @@ import { useAppAlert } from '../../components/ui/AppAlert';
 export default function ScanScreen() {
   const navigation = useNavigation();
   const { alert } = useAppAlert();
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+
+  const scanButtonAnchorRef = useRef<View | null>(null);
+  const [scanButtonRect, setScanButtonRect] = useState<null | { x: number; y: number; width: number; height: number }>(null);
+
+  const TUTORIAL_KEY = useMemo(() => '@nutrimatch_scan_tutorial_seen', []);
+  const TUTORIAL_PHASE_KEY = useMemo(() => '@nutrimatch_scan_tutorial_phase', []);
+  const [showTutorial, setShowTutorial] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const seen = await AsyncStorage.getItem(TUTORIAL_KEY);
+        if (mounted) setShowTutorial(seen !== '1');
+      } catch {
+        if (mounted) setShowTutorial(true);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [TUTORIAL_KEY]);
+
+  const measureScanButton = () => {
+    // measureInWindow gives absolute coordinates for overlay alignment
+    scanButtonAnchorRef.current?.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) {
+        setScanButtonRect(prev => {
+          if (prev && prev.x === x && prev.y === y && prev.width === width && prev.height === height) return prev;
+          return { x, y, width, height };
+        });
+      }
+    });
+  };
+
+  const finalizeTutorial = async () => {
+    setShowTutorial(false);
+    try {
+      await AsyncStorage.setItem(TUTORIAL_KEY, '1');
+      await AsyncStorage.removeItem(TUTORIAL_PHASE_KEY);
+    } catch {
+      // ignore
+    }
+  };
+
+  const goToVerifyTutorialPhase = async () => {
+    // Hide scan overlay but continue tutorial on Verify screen.
+    setShowTutorial(false);
+    try {
+      await AsyncStorage.setItem(TUTORIAL_PHASE_KEY, 'verify');
+    } catch {
+      // ignore
+    }
+  };
+
+  const tutorialTop = (insets.top || StatusBar.currentHeight || 0) + 8;
 
   const handleTips = () => {
     alert({
@@ -46,6 +106,13 @@ export default function ScanScreen() {
         alert({ title: '오류', message: '카메라를 실행하는 중 문제가 발생했습니다.' });
       }
     }
+  };
+
+  const handleScanFromTutorial = async () => {
+    if (showTutorial) {
+      await goToVerifyTutorialPhase();
+    }
+    await handleScan();
   };
 
   const handleGallery = async () => {
@@ -109,30 +176,140 @@ export default function ScanScreen() {
         </View>
 
         <View style={styles.bottomActions}>
-          <Button
-            title="사진 촬영하기"
-            onPress={handleScan}
-            style={styles.scanButton}
-            icon={<AppIcon name="photo-camera" color="#FFFFFF" size={20} />}
-          />
-          <View style={{ height: 12 }} />
-          <Button
-            title="사진 선택하기"
-            onPress={handleGallery}
-            variant="outline"
-            style={styles.scanButton}
-            icon={<AppIcon name="photo-library" color={COLORS.primary} size={20} />}
-          />
-          <View style={{ height: 12 }} />
-          <Button
-            title="촬영 팁"
-            onPress={handleTips}
-            variant="outline"
-            style={styles.scanButton}
-            icon={<AppIcon name="lightbulb" color={COLORS.primary} size={20} />}
-          />
+          <View ref={scanButtonAnchorRef} onLayout={measureScanButton}>
+            <Button
+              title="사진 촬영하기"
+              onPress={handleScanFromTutorial}
+              style={styles.scanButton}
+              icon={<AppIcon name="photo-camera" color="#FFFFFF" size={20} />}
+            />
+          </View>
+
+          <View style={styles.secondaryActions}>
+            <View style={{ height: 12 }} />
+            <Button
+              title="사진 선택하기"
+              onPress={handleGallery}
+              variant="outline"
+              style={styles.scanButton}
+              icon={<AppIcon name="photo-library" color={COLORS.primary} size={20} />}
+            />
+            <View style={{ height: 12 }} />
+            <Button
+              title="촬영 팁"
+              onPress={handleTips}
+              variant="outline"
+              style={styles.scanButton}
+              icon={<AppIcon name="lightbulb" color={COLORS.primary} size={20} />}
+            />
+          </View>
         </View>
       </View>
+
+      <Modal transparent visible={showTutorial} animationType="fade">
+        <View style={styles.tutorialModalRoot} onLayout={measureScanButton}>
+          <View style={[styles.tutorialModalTopRow, { paddingTop: tutorialTop }]}>
+            <Text style={styles.tutorialTopLabel} accessibilityRole="text">
+              사용 가이드
+            </Text>
+            <TouchableOpacity onPress={finalizeTutorial} accessibilityRole="button" style={styles.tutorialSkip}>
+              <Text style={styles.tutorialSkipText}>건너뛰기</Text>
+            </TouchableOpacity>
+          </View>
+
+          {!!scanButtonRect && (
+            <>
+              {(() => {
+                const highlightPadding = 6;
+                const holeX = scanButtonRect.x - highlightPadding;
+                const holeY = scanButtonRect.y - highlightPadding;
+                const holeW = scanButtonRect.width + highlightPadding * 2;
+                const holeH = scanButtonRect.height + highlightPadding * 2;
+                const holeR = RADIUS.sm + highlightPadding;
+
+                return (
+                  <>
+                    {/* Absorb touches everywhere by default */}
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      onPress={() => {}}
+                      style={styles.tutorialTouchAbsorber}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                    />
+
+                    {/* Dim layer with rounded cutout */}
+                    <Svg
+                      pointerEvents="none"
+                      width={screenWidth}
+                      height={screenHeight}
+                      style={styles.tutorialDimSvg}
+                    >
+                      <Defs>
+                        <Mask id="scanCutoutMask">
+                          <Rect width="100%" height="100%" fill="white" />
+                          <Rect x={holeX} y={holeY} width={holeW} height={holeH} rx={holeR} ry={holeR} fill="black" />
+                        </Mask>
+                      </Defs>
+                      <Rect
+                        width="100%"
+                        height="100%"
+                        fill="rgba(0,0,0,0.35)"
+                        mask="url(#scanCutoutMask)"
+                      />
+                    </Svg>
+
+                    {/* Highlight frame */}
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.tutorialHighlight,
+                        {
+                          left: holeX,
+                          top: holeY,
+                          width: holeW,
+                          height: holeH,
+                          borderRadius: holeR,
+                        },
+                      ]}
+                    />
+
+                    {/* Arrow + text */}
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.tutorialHint,
+                        {
+                          left: Math.max(16, scanButtonRect.x + scanButtonRect.width / 2 - 130),
+                          top: Math.max(tutorialTop + 10, scanButtonRect.y - 78),
+                        },
+                      ]}
+                    >
+                      <Text style={styles.tutorialHintText}>여기를 눌러 음식 사진을 찍고 분석해요</Text>
+                      <Text style={styles.tutorialArrow}>↓</Text>
+                    </View>
+
+                    {/* Click-through area for CTA: call the same handler as the existing button */}
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      onPress={handleScanFromTutorial}
+                      style={[
+                        styles.tutorialCtaHitbox,
+                        {
+                          left: scanButtonRect.x - 10,
+                          top: scanButtonRect.y - 10,
+                          width: scanButtonRect.width + 20,
+                          height: scanButtonRect.height + 20,
+                        },
+                      ]}
+                    />
+                  </>
+                );
+              })()}
+            </>
+          )}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -155,6 +332,7 @@ const styles = StyleSheet.create({
   },
   topContent: { gap: SPACING.md },
   bottomActions: { marginTop: 'auto' },
+  secondaryActions: {},
   
   // Scanner Card
   scannerCard: {
@@ -175,6 +353,73 @@ const styles = StyleSheet.create({
   scannerTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
   scannerDesc: { fontSize: 14, color: COLORS.text, lineHeight: 20 },
   scanButton: { width: '100%' },
+
+  tutorialModalRoot: {
+    flex: 1,
+  },
+  tutorialTouchAbsorber: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 5,
+  },
+  tutorialDimSvg: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+  },
+  tutorialModalTopRow: {
+    paddingHorizontal: SPACING.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 30,
+  },
+  tutorialTopLabel: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+    opacity: 0.9,
+  },
+  tutorialSkip: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: RADIUS.full,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  tutorialSkipText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  tutorialHighlight: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: RADIUS.sm,
+    zIndex: 15,
+  },
+  tutorialHint: {
+    position: 'absolute',
+    width: 260,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  tutorialHintText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  tutorialArrow: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '900',
+    lineHeight: 28,
+  },
+  tutorialCtaHitbox: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+    zIndex: 25,
+  },
 
   // Info Card
   infoCard: { padding: SPACING.md },

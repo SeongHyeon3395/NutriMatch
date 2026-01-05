@@ -50,7 +50,7 @@ function normalizeUri(uri: string) {
   return uri;
 }
 
-async function uploadImage(endpoint: string, fileUri: string) {
+async function uploadImage(endpoint: string, fileUri: string, extraFields?: Record<string, string>) {
   if (!BASE_URL) {
     throw new Error(
       '환경변수 BASE_URL이 비어있습니다. .env에 BASE_URL(예: https://<project-ref>.functions.supabase.co)과 SUPABASE_ANON_KEY를 설정하고 Metro를 재시작하세요.'
@@ -64,6 +64,12 @@ async function uploadImage(endpoint: string, fileUri: string) {
     name: filename,
   };
   form.append('file', rnFile);
+
+  if (extraFields) {
+    Object.entries(extraFields).forEach(([k, v]) => {
+      if (typeof v === 'string') form.append(k, v);
+    });
+  }
 
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     method: 'POST',
@@ -82,8 +88,9 @@ async function uploadImage(endpoint: string, fileUri: string) {
   return json as AnalyzeResponse;
 }
 
-export async function analyzeFoodImage(fileUri: string) {
-  return uploadImage(ENDPOINTS.analyzeFoodImage, fileUri);
+export async function analyzeFoodImage(fileUri: string, userContext?: Record<string, any> | null) {
+  const extra = userContext ? { userContext: JSON.stringify(userContext) } : undefined;
+  return uploadImage(ENDPOINTS.analyzeFoodImage, fileUri, extra);
 }
 
 export async function pingHealth(): Promise<AnalyzeResponse> {

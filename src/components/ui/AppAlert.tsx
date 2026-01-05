@@ -73,7 +73,10 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
               </View>
               {!!options.message && <Text style={styles.message}>{options.message}</Text>}
 
-              <ScrollView style={styles.actionsScroll} contentContainerStyle={[styles.actions, isTwoActions && styles.actionsRow]}>
+              <ScrollView
+                style={styles.actionsScroll}
+                contentContainerStyle={[styles.actions, isTwoActions && styles.actionsRow, styles.actionsContent]}
+              >
                 {actions.map((action, idx) => (
                   <Button
                     key={`${action.text}-${idx}`}
@@ -149,6 +152,9 @@ const styles = StyleSheet.create({
   actions: {
     marginTop: SPACING.lg,
     gap: 12,
+  },
+  actionsContent: {
+    paddingBottom: 2,
   },
   actionsScroll: {
     maxHeight: 360,

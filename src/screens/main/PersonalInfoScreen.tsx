@@ -32,6 +32,11 @@ export default function PersonalInfoScreen() {
   const username = profile?.username || (profile?.email ? profile.email.split('@')[0] : '');
   const nickname = profile?.nickname || profile?.name || '';
 
+  const formatNumber = (v: unknown, unit?: string) => {
+    if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return '설정 전';
+    return unit ? `${v}${unit}` : String(v);
+  };
+
   const bodyGoalLabel = useMemo(() => {
     if (!profile?.bodyGoal) return '설정 전';
     return BODY_GOALS.find(x => x.id === profile.bodyGoal)?.label || String(profile.bodyGoal);
@@ -97,6 +102,24 @@ export default function PersonalInfoScreen() {
           <InfoRow label="건강 목적" value={healthDietLabel} />
           <InfoRow label="식습관" value={lifestyleDietLabel} />
           <InfoRow label="알레르기" value={profile?.allergens?.length ? profile.allergens.join(', ') : '없음'} />
+        </Card>
+
+        <Card style={styles.card}>
+          <Text style={styles.sectionTitle}>신체 정보</Text>
+          <InfoRow label="현재 체중" value={formatNumber(profile.currentWeight, 'kg')} />
+          <InfoRow label="목표 체중" value={formatNumber(profile.targetWeight, 'kg')} />
+          <InfoRow label="키" value={formatNumber(profile.height, 'cm')} />
+          <InfoRow label="나이" value={formatNumber(profile.age, '세')} />
+          <InfoRow
+            label="성별"
+            value={
+              profile.gender === 'male'
+                ? '남'
+                : profile.gender === 'female'
+                  ? '여'
+                  : '설정 전'
+            }
+          />
         </Card>
 
         <Card style={styles.card}>

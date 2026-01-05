@@ -29,9 +29,19 @@ type GeminiErrorResult = {
   retryAfterSeconds?: number;
 };
 
-async function callGemini(base64: string, mime: string, model: string, apiKey: string): Promise<any | GeminiErrorResult> {
+async function callGemini(
+  base64: string,
+  mime: string,
+  model: string,
+  apiKey: string,
+  userContext?: any,
+): Promise<any | GeminiErrorResult> {
   // ... (기존 callGemini 로직과 동일) ...
   // (생략: 위 코드와 동일하게 유지하세요)
+    const userContextBlock = userContext
+      ? `\n\n[사용자 컨텍스트]\n${JSON.stringify(userContext, null, 2)}\n`
+      : `\n\n[사용자 컨텍스트]\nnull\n`;
+
     const prompt = `당신은 한국의 식품 분석 전문가입니다. 이미지를 분석하여 음식/제품을 식별하고 영양 정보를 JSON으로 반환하세요.
   
   **응답 언어: 무조건 한국어(Korean)**
@@ -43,6 +53,13 @@ async function callGemini(base64: string, mime: string, model: string, apiKey: s
     "ingredients": string[], 
     "allergens": string[], 
     "estimated_macros": { "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number, "sugar_g": number, "sodium_mg": number, "cholesterol_mg": number, "saturated_fat_g": number, "trans_fat_g": number },
+    "userAnalysis": {
+      "grade": "very_good"|"good"|"neutral"|"bad"|"very_bad",
+      "reasons": string[],
+      "warnings": string[],
+      "alternatives": string[],
+      "tips": string[]
+    }|null,
     "confidence": number, 
     "notes": string
   }
@@ -55,6 +72,9 @@ async function callGemini(base64: string, mime: string, model: string, apiKey: s
      - **경고:** 'null', '0', '모름'으로 비워두는 것은 허용되지 않습니다. 정확한 값이 없다면 **가장 유사한 일반적인 레시피나 제품의 평균값**이라도 넣으세요. 사용자는 추정치라도 원합니다.
   3. **알레르기**: 원재료를 분석하여 알레르기 유발 가능성을 판단하세요.
   4. **Notes**: 이 데이터가 포장지에서 읽은 것인지, 아니면 일반적인 정보를 바탕으로 추정한 것인지 명시하세요.
+  5. **개인화(userAnalysis)**: 사용자 컨텍스트(체형 목표/식습관/알레르기/신체정보)가 있으면 반드시 반영하여 등급(grade)과 이유/팁/대체식을 작성하세요. 컨텍스트가 없으면 userAnalysis는 null로 두세요.
+  6. **출력은 JSON만**: 설명 문장/마크다운/코드펜스 없이 JSON 객체 1개만 출력하세요.
+  ${userContextBlock}
   `;
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -152,7 +172,18 @@ serve(async (req: Request) => {
       );
     }
 
-    geminiData = await callGemini(base64, file.type || 'image/jpeg', model, apiKey);
+    const userContextRaw = form.get('userContext');
+    const userContext = (() => {
+      if (!userContextRaw) return null;
+      if (typeof userContextRaw !== 'string') return null;
+      try {
+        return JSON.parse(userContextRaw);
+      } catch {
+        return null;
+      }
+    })();
+
+    geminiData = await callGemini(base64, file.type || 'image/jpeg', model, apiKey, userContext);
 
     if (geminiData?.error) {
       const status = typeof geminiData.status === 'number' ? geminiData.status : 502;
@@ -262,9 +293,30 @@ serve(async (req: Request) => {
     }
 
     // 3. 최종 데이터 반환 구성
+    // 사용자 알레르기(컨텍스트)가 있으면 warnings에 보정(모델 누락 방지)
+    const userAllergens: string[] = Array.isArray((userContext as any)?.allergens)
+      ? (userContext as any).allergens.filter((x: any) => typeof x === 'string')
+      : [];
+    const modelAllergens: string[] = Array.isArray(geminiData?.allergens)
+      ? geminiData.allergens.filter((x: any) => typeof x === 'string')
+      : [];
+    const warningsFromAllergens = userAllergens
+      .filter(a => modelAllergens.some((m: string) => m.includes(a) || a.includes(m)))
+      .map(a => `알레르기 주의: ${a}`);
+
+    const mergedUserAnalysis = (() => {
+      const ua = geminiData?.userAnalysis;
+      if (!ua) return null;
+      const warnings = Array.isArray(ua.warnings) ? ua.warnings.filter((x: any) => typeof x === 'string') : [];
+      return {
+        ...ua,
+        warnings: Array.from(new Set([...warningsFromAllergens, ...warnings])),
+      };
+    })();
+
     const data = {
       kind: 'food',
-      version: 'v11-brand-fix',
+      version: 'v12-personalized-usercontext',
       model,
       source,
       reference_standard: referenceStandard,
@@ -277,6 +329,7 @@ serve(async (req: Request) => {
       ingredients: Array.isArray(geminiData?.ingredients) ? geminiData.ingredients : [],
       allergens: Array.isArray(geminiData?.allergens) ? geminiData.allergens : [],
       estimated_macros: geminiData?.estimated_macros || { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, sugar_g: 0, sodium_mg: 0, cholesterol_mg: 0, saturated_fat_g: 0, trans_fat_g: 0 },
+      userAnalysis: mergedUserAnalysis,
       confidence: typeof geminiData?.confidence === 'number' ? geminiData.confidence : 0,
       notes: geminiData?.notes || geminiNotice,
       fileMeta: { name: file.name, size: file.size, type: file.type },

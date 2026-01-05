@@ -17,6 +17,7 @@ import { Button } from '../../components/ui/Button';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { isSupabaseConfigured, supabase } from '../../services/supabaseClient';
 import { AppIcon } from '../../components/ui/AppIcon';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 function GoogleMark({ size = 18 }: { size?: number }) {
   // 브랜드 에셋을 직접 포함하지 않고, 앱 팔레트로 "구글 느낌"을 맞춘 단순 마크입니다.
@@ -130,6 +131,11 @@ export default function LoginScreen() {
 
   const handleNewStart = async () => {
     await clearProfile();
+    try {
+      await AsyncStorage.removeItem('@nutrimatch_scan_tutorial_seen');
+    } catch {
+      // ignore
+    }
     navigation.replace('Onboarding');
   };
 

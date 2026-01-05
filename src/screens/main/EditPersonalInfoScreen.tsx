@@ -40,8 +40,26 @@ export default function EditPersonalInfoScreen() {
 
   const profile = useUserStore(state => state.profile);
   const updateProfile = useUserStore(state => state.updateProfile);
+  const addBodyLog = useUserStore(state => state.addBodyLog);
 
   const [nicknameDraft, setNicknameDraft] = useState(profile?.nickname || profile?.name || '');
+
+  const [currentWeightText, setCurrentWeightText] = useState(
+    typeof profile?.currentWeight === 'number' ? String(profile.currentWeight) : ''
+  );
+  const [targetWeightText, setTargetWeightText] = useState(
+    typeof profile?.targetWeight === 'number' ? String(profile.targetWeight) : ''
+  );
+  const [heightText, setHeightText] = useState(
+    typeof profile?.height === 'number' ? String(profile.height) : ''
+  );
+  const [ageText, setAgeText] = useState(typeof profile?.age === 'number' ? String(profile.age) : '');
+  const [gender, setGender] = useState<'male' | 'female' | ''>(profile?.gender || '');
+
+  const parseNumber = (v: string) => {
+    const n = Number(String(v).replace(/[^0-9.]/g, ''));
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
 
   const bodyGoalLabel = useMemo(() => {
     if (!profile?.bodyGoal) return '설정 전';
@@ -64,18 +82,51 @@ export default function EditPersonalInfoScreen() {
     return list.join(', ');
   }, [profile?.allergens]);
 
-  const handleNicknameChangeOnly = async () => {
+  const handleSaveAll = async () => {
     if (!profile) {
       alert({ title: '프로필 없음', message: '로그인/온보딩 후 변경할 수 있어요.' });
       return;
     }
-    const next = nicknameDraft.trim();
-    if (!next) {
+
+    const nextNickname = nicknameDraft.trim();
+    if (!nextNickname) {
       alert({ title: '닉네임 입력', message: '닉네임을 입력해주세요.' });
       return;
     }
-    await updateProfile({ nickname: next });
-    alert({ title: '닉네임 변경 완료', message: '닉네임이 변경되었습니다.' });
+
+    const nextCurrentWeight = parseNumber(currentWeightText);
+    const nextTargetWeight = parseNumber(targetWeightText);
+    const nextHeight = parseNumber(heightText);
+    const nextAge = parseNumber(ageText);
+
+    await updateProfile({
+      nickname: nextNickname,
+      currentWeight: nextCurrentWeight,
+      targetWeight: nextTargetWeight,
+      height: nextHeight,
+      age: nextAge,
+      gender: gender || undefined,
+    });
+
+    if (
+      typeof nextCurrentWeight === 'number' &&
+      Number.isFinite(nextCurrentWeight) &&
+      nextCurrentWeight > 0 &&
+      nextCurrentWeight !== profile.currentWeight
+    ) {
+      try {
+        await addBodyLog({
+          id: `${Date.now()}`,
+          userId: profile.id,
+          weight: nextCurrentWeight,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.error('Failed to save body log', e);
+      }
+    }
+
+    navigation.goBack();
   };
 
   const openBodyGoalAlert = () => {
@@ -156,9 +207,6 @@ export default function EditPersonalInfoScreen() {
               placeholder="닉네임 입력"
               placeholderTextColor={COLORS.textGray}
             />
-            <Button variant="outline" size="sm" onPress={handleNicknameChangeOnly}>
-              변경
-            </Button>
           </View>
         </Card>
 
@@ -174,8 +222,79 @@ export default function EditPersonalInfoScreen() {
           />
         </Card>
 
+        <Card style={styles.card}>
+          <Text style={styles.sectionTitle}>신체 정보</Text>
+
+          <View style={styles.fieldRow}>
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>현재 체중(kg)</Text>
+              <TextInput
+                style={styles.fieldInput}
+                placeholder="예: 67"
+                placeholderTextColor={COLORS.textGray}
+                keyboardType="numeric"
+                value={currentWeightText}
+                onChangeText={setCurrentWeightText}
+              />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>목표 체중(kg)</Text>
+              <TextInput
+                style={styles.fieldInput}
+                placeholder="예: 62"
+                placeholderTextColor={COLORS.textGray}
+                keyboardType="numeric"
+                value={targetWeightText}
+                onChangeText={setTargetWeightText}
+              />
+            </View>
+          </View>
+
+          <View style={styles.fieldRow}>
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>키(cm)</Text>
+              <TextInput
+                style={styles.fieldInput}
+                placeholder="예: 172"
+                placeholderTextColor={COLORS.textGray}
+                keyboardType="numeric"
+                value={heightText}
+                onChangeText={setHeightText}
+              />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>나이</Text>
+              <TextInput
+                style={styles.fieldInput}
+                placeholder="예: 28"
+                placeholderTextColor={COLORS.textGray}
+                keyboardType="numeric"
+                value={ageText}
+                onChangeText={setAgeText}
+              />
+            </View>
+          </View>
+
+          <Text style={[styles.fieldLabel, { marginTop: 10 }]}>성별</Text>
+          <View style={styles.chipRow}>
+            {([
+              { id: 'male', label: '남' },
+              { id: 'female', label: '여' },
+            ] as const).map(opt => (
+              <TouchableOpacity
+                key={opt.id}
+                style={[styles.chip, gender === opt.id && styles.chipSelected]}
+                onPress={() => setGender(prev => (prev === opt.id ? '' : opt.id))}
+              >
+                <Text style={[styles.chipText, gender === opt.id && styles.chipTextSelected]}>{opt.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+        </Card>
+
         <View style={{ height: 6 }} />
-        <Button onPress={() => navigation.goBack()}>
+        <Button onPress={handleSaveAll}>
           확인
         </Button>
       </ScrollView>
@@ -259,5 +378,55 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.text,
     fontWeight: '700',
+  },
+
+  fieldRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  field: {
+    flex: 1,
+    minWidth: 0,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textSecondary,
+    marginBottom: 6,
+  },
+  fieldInput: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 12,
+    color: COLORS.text,
+    backgroundColor: COLORS.background,
+  },
+  chipRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  chipSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.blue50,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.textSecondary,
+  },
+  chipTextSelected: {
+    color: COLORS.primary,
   },
 });

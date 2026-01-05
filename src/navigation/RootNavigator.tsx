@@ -19,6 +19,8 @@ import SettingsScreen from '../screens/main/SettingsScreen';
 import PersonalInfoScreen from '../screens/main/PersonalInfoScreen';
 import EditPersonalInfoScreen from '../screens/main/EditPersonalInfoScreen.tsx';
 import EditAllergensScreen from '../screens/main/EditAllergensScreen.tsx';
+import MealDetailScreen from '../screens/main/MealDetailScreen';
+import NotificationSettingsScreen from '../screens/main/NotificationSettingsScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -38,8 +40,12 @@ export default function RootNavigator() {
         <Stack.Screen name="Verify" component={VerifyScreen} />
         <Stack.Screen name="Result" component={ResultScreen} />
 
+        {/* Meal */}
+        <Stack.Screen name="MealDetail" component={MealDetailScreen} />
+
         {/* Settings */}
         <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
         <Stack.Screen name="PersonalInfo" component={PersonalInfoScreen} />
         <Stack.Screen name="EditPersonalInfo" component={EditPersonalInfoScreen} />
         <Stack.Screen name="EditAllergens" component={EditAllergensScreen} />

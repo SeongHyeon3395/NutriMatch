@@ -1,13 +1,26 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Image, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Modal,
+  StatusBar,
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  TouchableOpacity,
+  useWindowDimensions,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { COLORS } from '../../constants/colors';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Svg, { Defs, Mask, Rect } from 'react-native-svg';
+import { COLORS, RADIUS } from '../../constants/colors';
 import { Button } from '../../components/ui/Button';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { analyzeFoodImage } from '../../services/api';
 import { FoodAnalysis } from '../../types/user';
 import { useAppAlert } from '../../components/ui/AppAlert';
+import { useUserStore } from '../../store/userStore';
 
 export default function VerifyScreen() {
   const navigation = useNavigation();
@@ -15,6 +28,54 @@ export default function VerifyScreen() {
   const { imageUri } = route.params as { imageUri: string };
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const { alert } = useAppAlert();
+  const profile = useUserStore(state => state.profile);
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+
+  const insets = useSafeAreaInsets();
+  const tutorialTop = (insets.top || StatusBar.currentHeight || 0) + 8;
+
+  const TUTORIAL_KEY = useMemo(() => '@nutrimatch_scan_tutorial_seen', []);
+  const TUTORIAL_PHASE_KEY = useMemo(() => '@nutrimatch_scan_tutorial_phase', []);
+  const [showVerifyTutorial, setShowVerifyTutorial] = useState(false);
+
+  const analyzeButtonAnchorRef = useRef<View | null>(null);
+  const [analyzeButtonRect, setAnalyzeButtonRect] = useState<null | { x: number; y: number; width: number; height: number }>(null);
+
+  const measureAnalyzeButton = () => {
+    analyzeButtonAnchorRef.current?.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) {
+        setAnalyzeButtonRect(prev => {
+          if (prev && prev.x === x && prev.y === y && prev.width === width && prev.height === height) return prev;
+          return { x, y, width, height };
+        });
+      }
+    });
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const phase = await AsyncStorage.getItem(TUTORIAL_PHASE_KEY);
+        if (mounted) setShowVerifyTutorial(phase === 'verify');
+      } catch {
+        if (mounted) setShowVerifyTutorial(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [TUTORIAL_PHASE_KEY]);
+
+  const finalizeTutorial = async () => {
+    setShowVerifyTutorial(false);
+    try {
+      await AsyncStorage.setItem(TUTORIAL_KEY, '1');
+      await AsyncStorage.removeItem(TUTORIAL_PHASE_KEY);
+    } catch {
+      // ignore
+    }
+  };
 
   const handleRetake = () => {
     navigation.goBack();
@@ -23,7 +84,22 @@ export default function VerifyScreen() {
   const handleAnalyze = async () => {
     setIsAnalyzing(true);
     try {
-      const response = await analyzeFoodImage(imageUri);
+      const response = await analyzeFoodImage(
+        imageUri,
+        profile
+          ? {
+              bodyGoal: profile.bodyGoal,
+              healthDiet: profile.healthDiet,
+              lifestyleDiet: profile.lifestyleDiet,
+              allergens: profile.allergens,
+              currentWeight: profile.currentWeight,
+              targetWeight: profile.targetWeight,
+              height: profile.height,
+              age: profile.age,
+              gender: profile.gender,
+            }
+          : null
+      );
       
       if (!response.ok || !response.data) {
         throw new Error(response.message || '분석에 실패했습니다.');
@@ -64,6 +140,13 @@ export default function VerifyScreen() {
     }
   };
 
+  const handleAnalyzeFromTutorial = async () => {
+    if (showVerifyTutorial) {
+      await finalizeTutorial();
+    }
+    await handleAnalyze();
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -88,15 +171,117 @@ export default function VerifyScreen() {
             style={styles.button}
             disabled={isAnalyzing}
           />
-          <Button 
-            title={isAnalyzing ? "분석 중..." : "분석 시작"} 
-            onPress={handleAnalyze} 
-            icon={isAnalyzing ? <ActivityIndicator color="white" /> : <AppIcon name="check" size={20} color="white" />}
-            style={styles.button}
-            disabled={isAnalyzing}
-          />
+          <View ref={analyzeButtonAnchorRef} onLayout={measureAnalyzeButton} style={{ width: '100%' }}>
+            <Button 
+              title={isAnalyzing ? "분석 중..." : "분석 시작"} 
+              onPress={handleAnalyzeFromTutorial} 
+              icon={isAnalyzing ? <ActivityIndicator color="white" /> : <AppIcon name="check" size={20} color="white" />}
+              style={styles.button}
+              disabled={isAnalyzing}
+            />
+          </View>
         </View>
       </View>
+
+      <Modal transparent visible={showVerifyTutorial} animationType="fade">
+        <View style={styles.tutorialModalRoot} onLayout={measureAnalyzeButton}>
+          <View style={[styles.tutorialTopRow, { paddingTop: tutorialTop }]}>
+            <Text style={styles.tutorialTopLabel} accessibilityRole="text">
+              사용 가이드
+            </Text>
+            <TouchableOpacity onPress={finalizeTutorial} accessibilityRole="button" style={styles.tutorialSkip}>
+              <Text style={styles.tutorialSkipText}>건너뛰기</Text>
+            </TouchableOpacity>
+          </View>
+
+          {!!analyzeButtonRect && (
+            <>
+              {(() => {
+                const highlightPadding = 6;
+                const holeX = analyzeButtonRect.x - highlightPadding;
+                const holeY = analyzeButtonRect.y - highlightPadding;
+                const holeW = analyzeButtonRect.width + highlightPadding * 2;
+                const holeH = analyzeButtonRect.height + highlightPadding * 2;
+                const holeR = RADIUS.sm + highlightPadding;
+
+                return (
+                  <>
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      onPress={() => {}}
+                      style={styles.tutorialTouchAbsorber}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                    />
+
+                    <Svg
+                      pointerEvents="none"
+                      width={screenWidth}
+                      height={screenHeight}
+                      style={styles.tutorialDimSvg}
+                    >
+                      <Defs>
+                        <Mask id="verifyCutoutMask">
+                          <Rect width="100%" height="100%" fill="white" />
+                          <Rect x={holeX} y={holeY} width={holeW} height={holeH} rx={holeR} ry={holeR} fill="black" />
+                        </Mask>
+                      </Defs>
+                      <Rect
+                        width="100%"
+                        height="100%"
+                        fill="rgba(0,0,0,0.35)"
+                        mask="url(#verifyCutoutMask)"
+                      />
+                    </Svg>
+
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.tutorialHighlight,
+                        {
+                          left: holeX,
+                          top: holeY,
+                          width: holeW,
+                          height: holeH,
+                          borderRadius: holeR,
+                        },
+                      ]}
+                    />
+
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.tutorialHint,
+                        {
+                          left: Math.max(16, analyzeButtonRect.x + analyzeButtonRect.width / 2 - 130),
+                          top: Math.max(tutorialTop + 10, analyzeButtonRect.y - 78),
+                        },
+                      ]}
+                    >
+                      <Text style={styles.tutorialHintText}>분석 시작을 눌러 결과를 확인해요</Text>
+                      <Text style={styles.tutorialArrow}>↓</Text>
+                    </View>
+
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      onPress={handleAnalyzeFromTutorial}
+                      style={[
+                        styles.tutorialCtaHitbox,
+                        {
+                          left: analyzeButtonRect.x - 10,
+                          top: analyzeButtonRect.y - 10,
+                          width: analyzeButtonRect.width + 20,
+                          height: analyzeButtonRect.height + 20,
+                        },
+                      ]}
+                    />
+                  </>
+                );
+              })()}
+            </>
+          )}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -147,11 +332,77 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   buttonGroup: {
-    flexDirection: 'row',
-    gap: 16,
     width: '100%',
+    gap: 12,
   },
   button: {
+    width: '100%',
+  },
+
+  tutorialModalRoot: {
     flex: 1,
+  },
+  tutorialTouchAbsorber: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 5,
+  },
+  tutorialDimSvg: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+  },
+  tutorialTopRow: {
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 30,
+  },
+  tutorialTopLabel: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+    opacity: 0.9,
+  },
+  tutorialSkip: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  tutorialSkipText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  tutorialHighlight: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: RADIUS.sm,
+    zIndex: 15,
+  },
+  tutorialHint: {
+    position: 'absolute',
+    width: 260,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  tutorialHintText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  tutorialArrow: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '900',
+    lineHeight: 28,
+  },
+  tutorialCtaHitbox: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+    zIndex: 25,
   },
 });

@@ -11,8 +11,13 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 
 export default function MealScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const { alert } = useAppAlert();
+
+  const recentMeals = [
+    { id: 'recent-1', title: '닭가슴살 샐러드', date: '오늘, 오후 12:30', calories: 450, grade: 'A' as const },
+    { id: 'recent-2', title: '아보카도 토스트', date: '오늘, 오전 08:10', calories: 320, grade: 'A' as const },
+  ];
 
   const handleCamera = async () => {
     try {
@@ -96,28 +101,40 @@ export default function MealScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>최근 식사</Text>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('History')}>
               <Text style={styles.seeAll}>전체 보기</Text>
             </TouchableOpacity>
           </View>
 
           {/* Mock Data Items */}
-          {[1, 2].map((item) => (
-            <TouchableOpacity key={item} style={styles.historyItem}>
+          {recentMeals.map(item => (
+            <TouchableOpacity
+              key={item.id}
+              style={styles.historyItem}
+              onPress={() =>
+                navigation.navigate('MealDetail', {
+                  title: item.title,
+                  date: item.date,
+                  calories: item.calories,
+                  grade: item.grade,
+                })
+              }
+            >
               <View style={styles.historyIcon}>
                 <AppIcon name="restaurant" size={20} color={COLORS.textSecondary} />
               </View>
               <View style={styles.historyContent}>
-                <Text style={styles.historyTitle}>닭가슴살 샐러드</Text>
+                <Text style={styles.historyTitle}>{item.title}</Text>
                 <View style={styles.historyMeta}>
                   <AppIcon name="access-time" size={12} color={COLORS.textSecondary} />
-                  <Text style={styles.historyTime}>오늘, 오후 12:30</Text>
+                  <Text style={styles.historyTime}>{item.date}</Text>
                   <Text style={styles.dot}>•</Text>
-                  <Text style={styles.calories}>450 kcal</Text>
+                  <Text style={styles.calories}>{item.calories} kcal</Text>
                 </View>
               </View>
-              <Badge variant="success" text="A" />
-              <View style={{ marginLeft: 8 }}>
+              <Badge variant="success" text={item.grade} />
+              <View style={{ marginLeft: 8, alignItems: 'flex-end' }}>
+                <Text style={styles.detailHint}>자세히 보기</Text>
                 <AppIcon name="chevron-right" size={22} color={COLORS.textSecondary} />
               </View>
             </TouchableOpacity>
@@ -251,5 +268,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textSecondary,
     fontWeight: '500',
+  },
+  detailHint: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginBottom: 2,
   },
 });

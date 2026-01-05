@@ -10,6 +10,7 @@ export type RootStackParamList = {
   Result: { analysis: FoodAnalysis; imageUri: string };
   EditAllergens: undefined;
   Settings: undefined;
+  NotificationSettings: undefined;
   PersonalInfo: undefined;
   EditPersonalInfo: undefined;
   Privacy: undefined;
@@ -18,6 +19,7 @@ export type RootStackParamList = {
   // Legacy
   Home: undefined;
   FoodResult: { analysis: FoodAnalysis; imageUri: string };
+  MealDetail: { title: string; date: string; calories: number; grade: 'A' | 'B' | 'C' | 'D' | 'E' };
 };
 
 export type MainTabParamList = {

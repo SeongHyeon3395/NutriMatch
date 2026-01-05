@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/colors';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
+import { useUserStore } from '../../store/userStore';
+import { FoodGrade } from '../../types/user';
 
 // Mock Data
 const MOCK_HISTORY = [
@@ -50,8 +53,74 @@ const MOCK_HISTORY = [
 ];
 
 export default function HistoryScreen() {
+  const navigation = useNavigation<any>();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('전체'); // All, Meals, Products
+
+  const foodLogs = useUserStore(state => state.foodLogs);
+  const loadFoodLogs = useUserStore(state => state.loadFoodLogs);
+
+  useEffect(() => {
+    loadFoodLogs();
+  }, [loadFoodLogs]);
+
+  const gradeToLetter = (grade?: FoodGrade) => {
+    switch (grade) {
+      case 'very_good': return 'A';
+      case 'good': return 'B';
+      case 'neutral': return 'C';
+      case 'bad': return 'D';
+      case 'very_bad': return 'E';
+      default: return 'C';
+    }
+  };
+
+  const historyData = useMemo(() => {
+    const realItems = (foodLogs || [])
+      .slice()
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+      .map(log => {
+        const calories = log.analysis?.macros?.calories;
+        const gradeLetter = gradeToLetter(log.analysis?.userAnalysis?.grade);
+        const displayDate = (() => {
+          try {
+            return new Date(log.timestamp).toLocaleString('ko-KR');
+          } catch {
+            return log.timestamp;
+          }
+        })();
+
+        return {
+          id: log.id,
+          type: 'meal',
+          title: log.analysis?.dishName ?? '기록',
+          date: displayDate,
+          calories: typeof calories === 'number' ? calories : 0,
+          grade: gradeLetter,
+          __kind: 'real' as const,
+          imageUri: log.imageUri,
+          analysis: log.analysis,
+        };
+      });
+
+    const base = realItems.length > 0 ? realItems : (MOCK_HISTORY as any[]);
+
+    const filtered = base.filter(item => {
+      const matchesFilter =
+        activeFilter === '전체' ||
+        (activeFilter === '식사' && item.type === 'meal') ||
+        (activeFilter === '제품' && item.type === 'product');
+
+      const q = searchQuery.trim().toLowerCase();
+      const matchesQuery =
+        q.length === 0 ||
+        String(item.title ?? '').toLowerCase().includes(q);
+
+      return matchesFilter && matchesQuery;
+    });
+
+    return filtered;
+  }, [activeFilter, foodLogs, searchQuery]);
 
   const getGradeLabel = (grade: string) => {
     switch (grade) {
@@ -85,8 +154,22 @@ export default function HistoryScreen() {
     }
   };
 
+  const handlePressItem = (item: any) => {
+    if (item?.__kind === 'real' && item?.imageUri && item?.analysis) {
+      navigation.navigate('Result', { imageUri: item.imageUri, analysis: item.analysis });
+      return;
+    }
+
+    navigation.navigate('MealDetail', {
+      title: item.title,
+      date: item.date,
+      calories: item.calories,
+      grade: item.grade,
+    });
+  };
+
   const renderItem = ({ item }: { item: any }) => (
-    <TouchableOpacity style={styles.itemCard}>
+    <TouchableOpacity style={styles.itemCard} onPress={() => handlePressItem(item)}>
       <View style={styles.itemIconContainer}>
         {item.type === 'meal' ? (
           <AppIcon name="restaurant" size={20} color={COLORS.primary} />
@@ -165,11 +248,16 @@ export default function HistoryScreen() {
       </View>
 
       <FlatList
-        data={MOCK_HISTORY}
+        data={historyData}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+        updateCellsBatchingPeriod={50}
       />
     </SafeAreaView>
   );

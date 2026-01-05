@@ -1,5 +1,5 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle, View } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle, View, type StyleProp } from 'react-native';
 import { COLORS, RADIUS } from '../../constants/colors';
 
 interface ButtonProps {
@@ -11,8 +11,8 @@ interface ButtonProps {
   size?: 'sm' | 'md' | 'lg';
   disabled?: boolean;
   loading?: boolean;
-  style?: ViewStyle;
-  textStyle?: TextStyle;
+  style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -66,6 +66,9 @@ export const Button: React.FC<ButtonProps> = ({
     }
   };
 
+  const fontSize = size === 'sm' ? 14 : 16;
+  const lineHeight = fontSize + 2;
+
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -87,12 +90,24 @@ export const Button: React.FC<ButtonProps> = ({
         <>
           {icon && <View style={{ marginRight: title || children ? 8 : 0 }}>{icon}</View>}
           {title ? (
-            <Text style={[styles.text, { color: getTextColor(), fontSize: size === 'sm' ? 14 : 16 }, textStyle]}>
+            <Text
+              style={[
+                styles.text,
+                { color: getTextColor(), fontSize, lineHeight, textAlignVertical: 'center' },
+                textStyle,
+              ]}
+            >
               {title}
             </Text>
           ) : (
             children && (
-              <Text style={[styles.text, { color: getTextColor(), fontSize: size === 'sm' ? 14 : 16 }, textStyle]}>
+              <Text
+                style={[
+                  styles.text,
+                  { color: getTextColor(), fontSize, lineHeight, textAlignVertical: 'center' },
+                  textStyle,
+                ]}
+              >
                 {children}
               </Text>
             )

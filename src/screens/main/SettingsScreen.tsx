@@ -101,6 +101,12 @@ export default function SettingsScreen() {
             onPress={() => navigation.navigate('PersonalInfo' as never)}
           />
           <View style={styles.divider} />
+          <Row
+            title="알림 설정"
+            description="식사 기록/요약 알림 관리"
+            onPress={() => navigation.navigate('NotificationSettings' as never)}
+          />
+          <View style={styles.divider} />
           <Row title="개인정보 및 보안" onPress={() => navigation.navigate('Privacy' as never)} />
           <View style={styles.divider} />
           <Row title="서비스 이용약관" onPress={() => navigation.navigate('Terms' as never)} />

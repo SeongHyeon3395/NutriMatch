@@ -1,29 +1,25 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  TextInput,
-  Dimensions,
   Animated,
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+
 import { RootStackParamList } from '../../navigation/types';
-import { useUserStore } from '../../store/userStore';
 import { AppIcon } from '../../components/ui/AppIcon';
-import {
-  BODY_GOALS,
-  HEALTH_DIETS,
-  LIFESTYLE_DIETS,
-  ALL_ALLERGENS,
-} from '../../constants';
-import { BodyGoalType, HealthDietType, LifestyleDietType, UserProfile } from '../../types/user';
-import { COLORS, SPACING, RADIUS } from '../../constants/colors';
 import { Button } from '../../components/ui/Button';
+import { COLORS, RADIUS, SPACING } from '../../constants/colors';
+import { ALL_ALLERGENS, BODY_GOALS, HEALTH_DIETS, LIFESTYLE_DIETS } from '../../constants';
+import { useUserStore } from '../../store/userStore';
+import type { BodyGoalType, HealthDietType, LifestyleDietType, UserProfile } from '../../types/user';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Onboarding'>;
 
@@ -32,7 +28,8 @@ const { width } = Dimensions.get('window');
 export default function OnboardingScreen() {
   const navigation = useNavigation<NavigationProp>();
   const setProfile = useUserStore(state => state.setProfile);
-  
+  const addBodyLog = useUserStore(state => state.addBodyLog);
+
   const [step, setStep] = useState(1);
   const [bodyGoal, setBodyGoal] = useState<BodyGoalType | null>(null);
   const [healthDiet, setHealthDiet] = useState<HealthDietType | null>(null);
@@ -40,8 +37,13 @@ export default function OnboardingScreen() {
   const [selectedAllergens, setSelectedAllergens] = useState<string[]>([]);
   const [allergenSearch, setAllergenSearch] = useState('');
   const [customAllergen, setCustomAllergen] = useState('');
-  
-  // Animation for progress bar
+
+  const [currentWeightText, setCurrentWeightText] = useState('');
+  const [targetWeightText, setTargetWeightText] = useState('');
+  const [heightText, setHeightText] = useState('');
+  const [ageText, setAgeText] = useState('');
+  const [gender, setGender] = useState<'male' | 'female' | ''>('');
+
   const progressAnim = useRef(new Animated.Value(25)).current;
 
   useEffect(() => {
@@ -50,7 +52,7 @@ export default function OnboardingScreen() {
       duration: 500,
       useNativeDriver: false,
     }).start();
-  }, [step]);
+  }, [progressAnim, step]);
 
   const handleNext = async () => {
     if (step === 1 && !bodyGoal) return;
@@ -59,28 +61,58 @@ export default function OnboardingScreen() {
 
     if (step < 4) {
       setStep(step + 1);
-    } else {
-      // Complete Onboarding
-      const newProfile: UserProfile = {
-        id: Date.now().toString(),
-        email: 'test@example.com',
-        name: '테스트 유저',
-        bodyGoal: bodyGoal!,
-        healthDiet: healthDiet!,
-        lifestyleDiet: lifestyleDiet!,
-        allergens: selectedAllergens,
-        onboardingCompleted: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        // Default quotas
-        plan_id: 'free',
-        premium_quota_remaining: 0,
-        free_image_quota_remaining: 3,
-      };
-      
-      await setProfile(newProfile);
-      navigation.replace('MainTab'); // This will be handled by RootNavigator to switch to MainTab
+      return;
     }
+
+    const now = new Date().toISOString();
+
+    const parseNumber = (v: string) => {
+      const n = Number(String(v).replace(/[^0-9.]/g, ''));
+      return Number.isFinite(n) ? n : undefined;
+    };
+
+    const currentWeight = parseNumber(currentWeightText);
+    const targetWeight = parseNumber(targetWeightText);
+    const height = parseNumber(heightText);
+    const age = parseNumber(ageText);
+
+    const newProfile: UserProfile = {
+      id: Date.now().toString(),
+      email: 'test@example.com',
+      name: '테스트 유저',
+      bodyGoal: bodyGoal!,
+      healthDiet: healthDiet!,
+      lifestyleDiet: lifestyleDiet!,
+      allergens: selectedAllergens,
+      currentWeight,
+      targetWeight,
+      height,
+      age,
+      gender: gender || undefined,
+      onboardingCompleted: true,
+      createdAt: now,
+      updatedAt: now,
+      plan_id: 'free',
+      premium_quota_remaining: 0,
+      free_image_quota_remaining: 3,
+    };
+
+    await setProfile(newProfile);
+
+    if (typeof currentWeight === 'number' && currentWeight > 0) {
+      try {
+        await addBodyLog({
+          id: `${Date.now()}`,
+          userId: newProfile.id,
+          weight: currentWeight,
+          timestamp: now,
+        });
+      } catch (e) {
+        console.error('Failed to save initial body log', e);
+      }
+    }
+
+    navigation.replace('MainTab');
   };
 
   const handleBack = () => {
@@ -100,23 +132,13 @@ export default function OnboardingScreen() {
   };
 
   const addCustomAllergen = () => {
-    if (customAllergen.trim()) {
-      if (!selectedAllergens.includes(customAllergen.trim())) {
-        setSelectedAllergens(prev => [...prev, customAllergen.trim()]);
-      }
-      setCustomAllergen('');
+    if (!customAllergen.trim()) return;
+    const next = customAllergen.trim();
+    if (!selectedAllergens.includes(next)) {
+      setSelectedAllergens(prev => [...prev, next]);
     }
+    setCustomAllergen('');
   };
-
-  const renderHeader = () => (
-    <View style={styles.headerContainer}>
-      <View style={styles.logoContainer}>
-        <Text style={styles.logoText}>N</Text>
-      </View>
-      <Text style={styles.appTitle}>NutriMatch</Text>
-      <Text style={styles.appSubtitle}>당신의 영양과 딱 맞는 선택</Text>
-    </View>
-  );
 
   const renderProgressBar = () => (
     <View style={styles.progressContainer}>
@@ -125,16 +147,16 @@ export default function OnboardingScreen() {
         <Text style={styles.percentText}>{step * 25}%</Text>
       </View>
       <View style={styles.progressBarBg}>
-        <Animated.View 
+        <Animated.View
           style={[
-            styles.progressBarFill, 
-            { 
+            styles.progressBarFill,
+            {
               width: progressAnim.interpolate({
                 inputRange: [0, 100],
-                outputRange: ['0%', '100%']
-              }) 
-            }
-          ]} 
+                outputRange: ['0%', '100%'],
+              }),
+            },
+          ]}
         />
       </View>
     </View>
@@ -148,16 +170,10 @@ export default function OnboardingScreen() {
         {BODY_GOALS.map(goal => (
           <TouchableOpacity
             key={goal.id}
-            style={[
-              styles.optionCard,
-              bodyGoal === goal.id && styles.optionCardSelected,
-            ]}
-            onPress={() => setBodyGoal(goal.id as BodyGoalType)}>
-            <Text
-              style={[
-                styles.optionLabel,
-                bodyGoal === goal.id && styles.optionLabelSelected,
-              ]}>
+            style={[styles.optionCard, bodyGoal === goal.id && styles.optionCardSelected]}
+            onPress={() => setBodyGoal(goal.id as BodyGoalType)}
+          >
+            <Text style={[styles.optionLabel, bodyGoal === goal.id && styles.optionLabelSelected]}>
               {goal.label}
             </Text>
             <Text style={styles.optionDesc}>{goal.description}</Text>
@@ -175,19 +191,15 @@ export default function OnboardingScreen() {
         {HEALTH_DIETS.map(diet => (
           <TouchableOpacity
             key={diet.id}
-            style={[
-              styles.gridCard,
-              healthDiet === diet.id && styles.optionCardSelected,
-            ]}
-            onPress={() => setHealthDiet(diet.id as HealthDietType)}>
-            <Text
-              style={[
-                styles.optionLabel,
-                healthDiet === diet.id && styles.optionLabelSelected,
-              ]}>
+            style={[styles.gridCard, healthDiet === diet.id && styles.optionCardSelected]}
+            onPress={() => setHealthDiet(diet.id as HealthDietType)}
+          >
+            <Text style={[styles.optionLabel, healthDiet === diet.id && styles.optionLabelSelected]}>
               {diet.label}
             </Text>
-            <Text style={styles.optionDesc} numberOfLines={2}>{diet.description}</Text>
+            <Text style={styles.optionDesc} numberOfLines={2}>
+              {diet.description}
+            </Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -202,19 +214,15 @@ export default function OnboardingScreen() {
         {LIFESTYLE_DIETS.map(diet => (
           <TouchableOpacity
             key={diet.id}
-            style={[
-              styles.gridCard,
-              lifestyleDiet === diet.id && styles.optionCardSelected,
-            ]}
-            onPress={() => setLifestyleDiet(diet.id as LifestyleDietType)}>
-            <Text
-              style={[
-                styles.optionLabel,
-                lifestyleDiet === diet.id && styles.optionLabelSelected,
-              ]}>
+            style={[styles.gridCard, lifestyleDiet === diet.id && styles.optionCardSelected]}
+            onPress={() => setLifestyleDiet(diet.id as LifestyleDietType)}
+          >
+            <Text style={[styles.optionLabel, lifestyleDiet === diet.id && styles.optionLabelSelected]}>
               {diet.label}
             </Text>
-            <Text style={styles.optionDesc} numberOfLines={2}>{diet.description}</Text>
+            <Text style={styles.optionDesc} numberOfLines={2}>
+              {diet.description}
+            </Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -222,14 +230,88 @@ export default function OnboardingScreen() {
   );
 
   const renderStep4 = () => {
-    const filteredAllergens = ALL_ALLERGENS.filter(a =>
-      a.includes(allergenSearch)
-    );
+    const filteredAllergens = ALL_ALLERGENS.filter(a => a.includes(allergenSearch));
 
     return (
       <View>
-        <Text style={styles.stepTitle}>알레르기 성분을 선택하세요</Text>
-        <Text style={styles.stepSubtitle}>위험 성분을 자동으로 감지합니다</Text>
+        <Text style={styles.stepTitle}>추가 정보를 입력하세요</Text>
+        <Text style={styles.stepSubtitle}>맞춤 분석과 기록에 활용됩니다</Text>
+
+        <View style={styles.sectionBlock}>
+          <Text style={styles.sectionTitle}>신체 정보 (선택)</Text>
+          <Text style={styles.sectionDesc}>체중은 첫 신체 기록으로 저장돼요.</Text>
+
+          <View style={styles.fieldRow}>
+            <View style={styles.field}>
+              <Text style={styles.formLabel}>현재 체중(kg)</Text>
+              <TextInput
+                style={styles.formInput}
+                placeholder="예: 67"
+                keyboardType="numeric"
+                value={currentWeightText}
+                onChangeText={setCurrentWeightText}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.formLabel}>목표 체중(kg)</Text>
+              <TextInput
+                style={styles.formInput}
+                placeholder="예: 62"
+                keyboardType="numeric"
+                value={targetWeightText}
+                onChangeText={setTargetWeightText}
+              />
+            </View>
+          </View>
+
+          <View style={styles.fieldRow}>
+            <View style={styles.field}>
+              <Text style={styles.formLabel}>키(cm)</Text>
+              <TextInput
+                style={styles.formInput}
+                placeholder="예: 172"
+                keyboardType="numeric"
+                value={heightText}
+                onChangeText={setHeightText}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.formLabel}>나이</Text>
+              <TextInput
+                style={styles.formInput}
+                placeholder="예: 28"
+                keyboardType="numeric"
+                value={ageText}
+                onChangeText={setAgeText}
+              />
+            </View>
+          </View>
+
+          <Text style={[styles.formLabel, { marginTop: 10 }]}>성별</Text>
+          <View style={styles.chipRow}>
+            {([
+              { id: 'male', label: '남' },
+              { id: 'female', label: '여' },
+            ] as const).map(opt => (
+              <TouchableOpacity
+                key={opt.id}
+                style={[styles.chip, gender === opt.id && styles.chipSelected]}
+                onPress={() => setGender(prev => (prev === opt.id ? '' : opt.id))}
+              >
+                <Text style={[styles.chipText, gender === opt.id && styles.chipTextSelected]}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.sectionBlock}>
+          <Text style={styles.sectionTitle}>알레르기 성분</Text>
+          <Text style={styles.sectionDesc}>위험 성분을 자동으로 감지합니다</Text>
+        </View>
 
         <View style={styles.searchContainer}>
           <View style={styles.searchIcon}>
@@ -260,10 +342,7 @@ export default function OnboardingScreen() {
 
         <View style={styles.selectedTags}>
           {selectedAllergens.map((allergen, idx) => (
-            <TouchableOpacity
-              key={idx}
-              style={styles.tag}
-              onPress={() => toggleAllergen(allergen)}>
+            <TouchableOpacity key={idx} style={styles.tag} onPress={() => toggleAllergen(allergen)}>
               <Text style={styles.tagText}>{allergen}</Text>
               <AppIcon name="close" size={16} color={COLORS.danger} />
             </TouchableOpacity>
@@ -272,15 +351,18 @@ export default function OnboardingScreen() {
 
         {allergenSearch.length > 0 && (
           <View style={styles.allergenList}>
-             {filteredAllergens.slice(0, 10).map((allergen, idx) => (
+            {filteredAllergens.slice(0, 10).map((allergen, idx) => (
               <TouchableOpacity
                 key={idx}
                 style={styles.allergenItem}
-                onPress={() => toggleAllergen(allergen)}>
-                <Text style={[
-                  styles.allergenItemText,
-                  selectedAllergens.includes(allergen) && styles.allergenItemTextSelected
-                ]}>
+                onPress={() => toggleAllergen(allergen)}
+              >
+                <Text
+                  style={[
+                    styles.allergenItemText,
+                    selectedAllergens.includes(allergen) && styles.allergenItemTextSelected,
+                  ]}
+                >
                   {allergen} {selectedAllergens.includes(allergen) && '(선택됨)'}
                 </Text>
               </TouchableOpacity>
@@ -294,7 +376,6 @@ export default function OnboardingScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
-        {(step === 2 || step === 3) && renderHeader()}
         {renderProgressBar()}
 
         {step === 1 && renderStep1()}
@@ -311,12 +392,9 @@ export default function OnboardingScreen() {
         )}
         <Button
           style={styles.nextButton}
-          disabled={
-            (step === 1 && !bodyGoal) ||
-            (step === 2 && !healthDiet) ||
-            (step === 3 && !lifestyleDiet)
-          }
-          onPress={handleNext}>
+          disabled={(step === 1 && !bodyGoal) || (step === 2 && !healthDiet) || (step === 3 && !lifestyleDiet)}
+          onPress={handleNext}
+        >
           {step === 4 ? '완료' : '다음'}
         </Button>
       </View>
@@ -328,26 +406,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   content: { flex: 1 },
   scrollContent: { padding: SPACING.lg, paddingBottom: 100 },
-  
-  // Header
-  headerContainer: { alignItems: 'center', marginBottom: SPACING.xl },
-  logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: SPACING.md,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  logoText: { fontSize: 36, fontWeight: '900', color: '#FFF' },
-  appTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
-  appSubtitle: { fontSize: 16, fontWeight: '500', color: COLORS.textGray },
 
   // Progress Bar
   progressContainer: { marginBottom: SPACING.xl },
@@ -360,10 +418,78 @@ const styles = StyleSheet.create({
   // Steps
   stepTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
   stepSubtitle: { fontSize: 16, color: COLORS.textGray, marginBottom: SPACING.xl },
-  
+
+  sectionBlock: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    backgroundColor: COLORS.background,
+    marginBottom: SPACING.md,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: COLORS.text,
+  },
+  sectionDesc: {
+    marginTop: 4,
+    fontSize: 12,
+    color: COLORS.textGray,
+  },
+  fieldRow: {
+    marginTop: SPACING.md,
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  field: {
+    flex: 1,
+    minWidth: 0,
+  },
+  formLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textGray,
+    marginBottom: 6,
+  },
+  formInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.md,
+    height: 44,
+    color: COLORS.text,
+    backgroundColor: COLORS.background,
+  },
+  chipRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  chipSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.blue50,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.textGray,
+  },
+  chipTextSelected: {
+    color: COLORS.primary,
+  },
+
   optionsContainer: { gap: SPACING.sm },
   gridContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
-  
+
   optionCard: {
     borderWidth: 2,
     borderColor: COLORS.border,
@@ -374,7 +500,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   gridCard: {
-    width: (width - 48 - SPACING.sm) / 2, // 48 = paddingHorizontal * 2
+    width: (width - 48 - SPACING.sm) / 2,
     borderWidth: 2,
     borderColor: COLORS.border,
     borderRadius: RADIUS.md,
@@ -403,7 +529,7 @@ const styles = StyleSheet.create({
   },
   searchIcon: { marginRight: SPACING.sm },
   searchInput: { flex: 1, fontSize: 16, color: COLORS.text },
-  
+
   customInputContainer: {
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
@@ -434,7 +560,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   tagText: { color: COLORS.danger, fontWeight: '600' },
-  
+
   allergenList: {
     borderWidth: 1,
     borderColor: COLORS.border,

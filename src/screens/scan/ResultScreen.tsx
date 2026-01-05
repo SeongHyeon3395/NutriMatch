@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
+import { useUserStore } from '../../store/userStore';
 
 import { FoodAnalysis, FoodGrade } from '../../types/user';
 
@@ -15,8 +16,32 @@ export default function ResultScreen() {
   const route = useRoute();
   const { imageUri, analysis } = route.params as { imageUri: string, analysis: FoodAnalysis };
 
-  const handleDone = () => {
-    navigation.navigate('MainTab', { screen: 'History' });
+  const profile = useUserStore(state => state.profile);
+  const addFoodLog = useUserStore(state => state.addFoodLog);
+
+  const getMealTypeFromNow = (): 'breakfast' | 'lunch' | 'dinner' | 'snack' => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 11) return 'breakfast';
+    if (hour >= 11 && hour < 16) return 'lunch';
+    if (hour >= 16 && hour < 22) return 'dinner';
+    return 'snack';
+  };
+
+  const handleDone = async () => {
+    try {
+      await addFoodLog({
+        id: `${Date.now()}`,
+        userId: profile?.id ?? 'local',
+        imageUri,
+        analysis,
+        mealType: getMealTypeFromNow(),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('Failed to save food log', e);
+    } finally {
+      navigation.navigate('MainTab', { screen: 'History' });
+    }
   };
 
   const getGradeLetter = (grade?: FoodGrade) => {
