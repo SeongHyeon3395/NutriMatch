@@ -41,19 +41,7 @@
 
 ### 2) 환경 변수 설정
 
-이 프로젝트는 `@env`(react-native-dotenv)를 사용합니다. 루트에 `.env`를 만들고 아래 값을 채워주세요.
-
-```bash
-SUPABASE_URL=https://YOUR_PROJECT.supabase.co
-SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
-
-# 선택: Edge Functions 베이스 URL을 명시적으로 지정
-# 지정하지 않으면 SUPABASE_URL에서 자동으로 유도합니다.
-BASE_URL=https://YOUR_PROJECT.functions.supabase.co
-
-# 선택: 설정 화면에서 사용하는 개인정보처리방침 링크
-PRIVACY_POLICY_URL=https://example.com/privacy
-```
+이 프로젝트는 `@env`(react-native-dotenv)를 사용합니다.
 
 참고:
 - 개발 중 `BASE_URL`을 못 읽는 환경을 대비해, `.env`가 없을 때는 `.env.runtime.json`을 fallback으로 읽도록 되어 있습니다(선택 사항).
@@ -87,7 +75,7 @@ npx supabase functions deploy signup-device
 Secrets(예: AI API Key)을 쓰는 경우:
 
 ```bash
-npx supabase secrets set GEMINI_API_KEY=YOUR_KEY
+npx supabase secrets set GEMINI_API_KEY=" EX "
 ```
 
 ### DB 마이그레이션
@@ -119,9 +107,3 @@ supabase/
     functions/         # Edge Functions
     migrations/        # DB migrations
 ```
-
----
-
-## 라이선스
-
-사내/개인 프로젝트 용도로 작성되었습니다. 라이선스가 필요하면 저장소 정책에 맞게 추가해주세요.
