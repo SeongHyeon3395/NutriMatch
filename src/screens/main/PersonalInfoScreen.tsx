@@ -1,7 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { COLORS, SPACING, RADIUS } from '../../constants/colors';
 import { Card } from '../../components/ui/Card';
@@ -9,6 +9,8 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { Button } from '../../components/ui/Button';
 import { useUserStore } from '../../store/userStore';
 import { BODY_GOALS, HEALTH_DIETS, LIFESTYLE_DIETS } from '../../constants';
+import { fetchMyAppUser } from '../../services/userData';
+import { isSupabaseConfigured, supabase } from '../../services/supabaseClient';
 
 type InfoRowProps = {
   label: string;
@@ -29,8 +31,28 @@ function InfoRow({ label, value }: InfoRowProps) {
 export default function PersonalInfoScreen() {
   const navigation = useNavigation();
   const profile = useUserStore(state => state.profile);
+  const setProfile = useUserStore(state => state.setProfile);
   const username = profile?.username || (profile?.email ? profile.email.split('@')[0] : '');
   const nickname = profile?.nickname || profile?.name || '';
+
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      (async () => {
+        if (!isSupabaseConfigured || !supabase) return;
+        try {
+          const remote = await fetchMyAppUser();
+          if (!alive) return;
+          await setProfile(remote as any);
+        } catch {
+          // ignore
+        }
+      })();
+      return () => {
+        alive = false;
+      };
+    }, [setProfile])
+  );
 
   const formatNumber = (v: unknown, unit?: string) => {
     if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return '설정 전';

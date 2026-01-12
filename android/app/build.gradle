@@ -111,6 +111,9 @@ dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 
+    // Android 12+ SplashScreen theme/attrs support (Theme.SplashScreen, windowSplashScreen*)
+    implementation("androidx.core:core-splashscreen:1.0.1")
+
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {

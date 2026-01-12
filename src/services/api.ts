@@ -25,7 +25,6 @@ export type SignupDeviceRequest = {
   username: string;
   nickname: string;
   password: string;
-  deviceId: string;
 };
 
 export type SignupDeviceResponse = {

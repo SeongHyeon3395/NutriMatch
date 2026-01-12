@@ -12,7 +12,7 @@ type RouteParams = {
   title: string;
   date: string;
   calories: number;
-  grade: 'A' | 'B' | 'C' | 'D' | 'E';
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
 };
 
 export default function MealDetailScreen() {
@@ -28,7 +28,7 @@ export default function MealDetailScreen() {
       case 'C':
         return 'warning';
       case 'D':
-      case 'E':
+      case 'F':
         return 'danger';
       default:
         return 'default';

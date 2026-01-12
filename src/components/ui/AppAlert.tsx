@@ -9,6 +9,7 @@ export type AppAlertActionVariant = 'primary' | 'outline' | 'danger';
 
 export interface AppAlertAction {
   text: string;
+  description?: string;
   variant?: AppAlertActionVariant;
   onPress?: () => void;
 }
@@ -80,10 +81,20 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
                 {actions.map((action, idx) => (
                   <Button
                     key={`${action.text}-${idx}`}
-                    title={action.text}
+                    title={action.description ? undefined : action.text}
+                    children={
+                      action.description ? (
+                        <View style={styles.actionTextStack}>
+                          <Text style={styles.actionMainText}>{action.text}</Text>
+                          <Text style={styles.actionSubText}>{action.description}</Text>
+                        </View>
+                      ) : undefined
+                    }
                     onPress={() => handleActionPress(action)}
                     variant={action.variant || 'primary'}
+                    size={actions.length > 5 ? 'sm' : 'md'}
                     style={isTwoActions ? styles.actionButtonHalf : styles.actionButtonFull}
+                    textStyle={styles.actionTitleText}
                   />
                 ))}
               </ScrollView>
@@ -154,13 +165,29 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   actionsContent: {
-    paddingBottom: 2,
+    paddingBottom: 10,
   },
   actionsScroll: {
-    maxHeight: 360,
+    maxHeight: 520,
   },
   actionsRow: {
     flexDirection: 'row',
+  },
+  actionTextStack: {
+    alignItems: 'center',
+  },
+  actionMainText: {
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  actionSubText: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 16,
+    color: COLORS.textSecondary,
+  },
+  actionTitleText: {
+    // title-only button text style override (keeps current look)
   },
   actionButtonHalf: {
     flex: 1,

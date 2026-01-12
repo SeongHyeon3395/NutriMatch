@@ -1,69 +1,127 @@
-# 🥗 NutriMatch: AI-Powered Nutrition Scanner
+# NewFit (뉴핏) / NutriMatch Front
 
-**NutriMatch**는 단순한 칼로리 카운터가 아닙니다. 이 앱은 복잡한 알레르기, 특정 식단(비건, 키토 등), 또는 건강 목표를 가진 사용자가 마트에서 불안감 없이 확신을 가지고 식료품을 구매할 수 있도록 돕는 **'초개인화 AI 영양 조수'**입니다.
+사진 한 장으로 음식 정보를 분석하고, 사용자 목표/식습관/알레르기 정보를 반영해 **맞춤형 피드백과 기록(히스토리)**까지 이어지는 React Native 앱입니다.
 
----
-
-## 🎯 The Problem: "이거 내가 먹어도 되나?"
-
-수백만 명의 사람들이 복잡한 식이 요법을 따르지만, 식료품 성분표는 깨알 같고, 전문 용어로 가득 차 있으며, 읽기 어렵습니다.
-
-* **불안감:** 알레르기 환자에게 실수(예: '밀'을 '쌀'로 잘못 읽음)는 생명과 직결될 수 있습니다.
-* **높은 비용:** `Fig`와 같은 기존 앱은 연 $40 이상의 높은 구독료를 요구합니다.
-* **이중 노동:** 마트에서 스캔하는 앱(`Fig`)과 집에서 기록하는 앱(`MyFitnessPal`)을 따로 써야 합니다.
-
-**NutriMatch는 이 모든 문제를 '신뢰'와 '합리적인 비용', 그리고 '통합된 경험'으로 해결합니다.**
+앱 표시 이름은 **NewFit**(한국어: **뉴핏**)이고, 저장소/코드 내부 식별자는 **NutriMatch**를 사용하고 있습니다.
 
 ---
 
-## ✨ 현재 프로토타입 핵심 기능
+## 무엇을 하는 앱인가요?
 
-> 바코드/OCR 다단계 스캔 초기 설계는 제거되고, **음식 사진 단일 인식 흐름**으로 간소화되었습니다. 빠른 가설 검증과 사용자 피드백 수집을 위한 최소기능제품(MVP) 단계입니다.
+- 음식 사진을 촬영/선택하면 AI 분석을 수행합니다.
+- 분석 결과를 사용자 프로필(목표, 식습관, 알레르기 등)과 함께 해석해 등급(A~F)과 안내 문구를 제공합니다.
+- 분석 결과를 **기록에 남기기**로 저장하면, **기록(History)** 및 **식단(최근 식사)**에서 다시 확인할 수 있습니다.
 
-### 1. 🍽️ 음식 사진 인식 (Gemini 1.5 Flash)
-단일 사진을 촬영 또는 갤러리에서 선택하면 Edge Function이 이미지를 받아 **Gemini Vision**으로 추론하여 다음 JSON을 반환합니다:
+---
 
-```json
-{
-    "dish": {
-        "name": "Bibimbap",
-        "categories": ["Korean", "Rice", "Mixed"],
-        "confidence": 0.92,
-        "description": "A mixed rice bowl with assorted vegetables and gochujang."
-    }
-}
+## 핵심 기능
+
+- 음식 사진 분석(촬영/갤러리) → 결과 화면
+- 사용자 맞춤 분석(알레르기/식습관/목표 기반)
+- 기록 저장 및 조회(원격 Supabase + 로컬 캐시)
+- 월간 스캔 제한(기본 5회/월)
+- 프로필/설정/온보딩 플로우
+
+---
+
+## 기술 스택
+
+- React Native 0.82.1 + TypeScript
+- React Navigation
+- Zustand + AsyncStorage(로컬 캐시)
+- Supabase(Auth, Postgres, Storage, Edge Functions)
+
+---
+
+## 빠른 시작(로컬 개발)
+
+### 1) 의존성 설치
+
+`npm install`
+
+### 2) 환경 변수 설정
+
+이 프로젝트는 `@env`(react-native-dotenv)를 사용합니다. 루트에 `.env`를 만들고 아래 값을 채워주세요.
+
+```bash
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+
+# 선택: Edge Functions 베이스 URL을 명시적으로 지정
+# 지정하지 않으면 SUPABASE_URL에서 자동으로 유도합니다.
+BASE_URL=https://YOUR_PROJECT.functions.supabase.co
+
+# 선택: 설정 화면에서 사용하는 개인정보처리방침 링크
+PRIVACY_POLICY_URL=https://example.com/privacy
 ```
 
-앱은 신뢰도(<=1 값은 % 변환)와 카테고리를 가공해 사용자에게 즉시 보여줍니다.
+참고:
+- 개발 중 `BASE_URL`을 못 읽는 환경을 대비해, `.env`가 없을 때는 `.env.runtime.json`을 fallback으로 읽도록 되어 있습니다(선택 사항).
+- `.env`를 바꾼 뒤에는 Metro 재시작이 필요할 수 있습니다.
 
-### 2. 🔄 초경량 UX 흐름
-1. 사용자: 촬영 또는 선택
-2. 앱: 로컬에서 FormData 구성 후 Supabase Edge Function 호출
-3. 서버: Gemini 호출 → JSON 정규화 → `{ ok: true, data }` 반환
-4. 앱: 미리보기 + 결과 렌더 (스켈레톤 로딩 포함)
+### 3) 실행
 
-### 3. 🧪 빠른 가설 검증을 위한 의도적 생략
-아래 기능은 향후 단계에서 재도입 예정입니다:
-* 실시간 바코드 스캐너 / Open Food Facts 연동
-* OCR Fallback / 사용자 검증 편집 화면
-* 식이/알레르기 개인화 프로필 + 맞춤 분석
-* 고급 모델(Gemini Pro) 기반 레스토랑/복합요리 다중 추론
-
-현재는 **"사진만 올리면 이름과 간단 설명"** 을 즉시 얻는 경험에 집중합니다.
+- Android: `npm run android`
+- iOS: `npm run ios`
+- Metro: `npm run start`
 
 ---
 
-## 💻 기술 스택 (The Stack)
+## Supabase(서버/DB)
 
-| 영역 | 기술 | 사유 (Why?) |
-| :--- | :--- | :--- |
-| **Frontend** | **React Native** (Expo) | Android/iOS 크로스플랫폼 개발, 빠른 프로토타이핑 |
-| **Backend** | **Supabase** (BaaS) | 1인 개발자에게 완벽한 '올인원 키트' (Auth, DB, Storage, Functions) |
-| **Database** | **PostgreSQL** | 튼튼하고 정형화된 데이터 관리를 위한 SQL |
-| **Backend Logic**| **Supabase Edge Functions** | VS Code에서 TypeScript로 '서버리스' 백엔드(AI 제어 로직) 개발 |
-| **AI (Vision)** | **Gemini 1.5 Flash** | 단일 음식 사진 인식 (저비용, 빠른 응답) |
-| **Payments** | **Google Play Billing** | 자동 환전(KRW) 및 15% 수수료(1인 개발자 혜택) |
+### Edge Functions
 
+서버 로직은 Supabase Edge Functions로 구성되어 있고, 주요 함수는 아래 폴더에 있습니다.
 
-* **[◻️] Phase 4: 테스트 및 배포**
-    * [ ] Google
+- [supabase/functions/analyze-food-image/index.ts](supabase/functions/analyze-food-image/index.ts)
+- [supabase/functions/signup-device/index.ts](supabase/functions/signup-device/index.ts)
+- [supabase/functions/delete-account/index.ts](supabase/functions/delete-account/index.ts)
+
+배포 예시:
+
+```bash
+npx supabase functions deploy analyze-food-image
+npx supabase functions deploy signup-device
+```
+
+Secrets(예: AI API Key)을 쓰는 경우:
+
+```bash
+npx supabase secrets set GEMINI_API_KEY=YOUR_KEY
+```
+
+### DB 마이그레이션
+
+DB 스키마 변경은 아래 폴더에서 관리합니다.
+
+- [supabase/migrations](supabase/migrations)
+
+---
+
+## 테스트/품질
+
+- 테스트: `npm test`
+- 린트: `npm run lint`
+
+---
+
+## 프로젝트 구조
+
+```text
+src/
+    components/        # 공통 UI 컴포넌트
+    navigation/        # 네비게이션 구성
+    screens/           # 화면 단위
+    services/          # Supabase/서버 통신, 데이터 로직
+    store/             # Zustand 스토어(프로필/기록 캐시)
+    types/             # 타입 정의
+supabase/
+    functions/         # Edge Functions
+    migrations/        # DB migrations
+```
+
+---
+
+## 라이선스
+
+사내/개인 프로젝트 용도로 작성되었습니다. 라이선스가 필요하면 저장소 정책에 맞게 추가해주세요.

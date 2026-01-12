@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import { COLORS, SPACING, RADIUS } from '../../constants/colors';
 import { Card } from '../../components/ui/Card';
 import { AppIcon } from '../../components/ui/AppIcon';
+import { getSessionUserId, fetchMyNotificationSettingsRemote, upsertMyNotificationSettingsRemote } from '../../services/userData';
 
 const NOTIFICATION_SETTINGS_KEY = '@nutrimatch_notification_settings';
 
@@ -61,25 +62,67 @@ export default function NotificationSettingsScreen() {
   const navigation = useNavigation();
   const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  const storageKey = useMemo(() => {
+    return userId ? `${NOTIFICATION_SETTINGS_KEY}:${userId}` : NOTIFICATION_SETTINGS_KEY;
+  }, [userId]);
 
   const persist = useCallback(async (next: NotificationSettings) => {
     setSettings(next);
     try {
-      await AsyncStorage.setItem(NOTIFICATION_SETTINGS_KEY, JSON.stringify(next));
+      // 1) 서버 우선 저장(로그인 상태)
+      if (userId) {
+        await upsertMyNotificationSettingsRemote({
+          enabled: next.enabled,
+          meal_reminder: next.mealReminder,
+          weekly_summary: next.weeklySummary,
+          tips: next.tips,
+        });
+      }
+      // 2) 로컬 캐시(오프라인/로딩용)
+      await AsyncStorage.setItem(storageKey, JSON.stringify(next));
     } catch (e) {
       console.error('Failed to save notification settings', e);
     }
-  }, []);
+  }, [storageKey, userId]);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const stored = await AsyncStorage.getItem(NOTIFICATION_SETTINGS_KEY);
+        const uid = await getSessionUserId().catch(() => null);
         if (!mounted) return;
-        if (stored) {
-          setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(stored) });
+        setUserId(uid);
+
+        // 1) 서버에서 먼저 로드(로그인 상태)
+        if (uid) {
+          try {
+            const remote = await fetchMyNotificationSettingsRemote();
+            if (!mounted) return;
+            setSettings({
+              enabled: Boolean(remote?.enabled),
+              mealReminder: Boolean(remote?.meal_reminder),
+              weeklySummary: Boolean(remote?.weekly_summary),
+              tips: Boolean(remote?.tips),
+            });
+            // 서버 값을 로컬에도 캐시
+            await AsyncStorage.setItem(`${NOTIFICATION_SETTINGS_KEY}:${uid}`, JSON.stringify({
+              enabled: Boolean(remote?.enabled),
+              mealReminder: Boolean(remote?.meal_reminder),
+              weeklySummary: Boolean(remote?.weekly_summary),
+              tips: Boolean(remote?.tips),
+            }));
+            return;
+          } catch {
+            // 서버 로드 실패 시 로컬로 폴백
+          }
         }
+
+        // 2) 로컬 폴백
+        const stored = await AsyncStorage.getItem(uid ? `${NOTIFICATION_SETTINGS_KEY}:${uid}` : NOTIFICATION_SETTINGS_KEY);
+        if (!mounted) return;
+        if (stored) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(stored) });
       } catch (e) {
         console.error('Failed to load notification settings', e);
       } finally {

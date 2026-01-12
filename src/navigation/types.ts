@@ -4,7 +4,7 @@ import { FoodAnalysis } from '../types/user';
 export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
-  Onboarding: undefined;
+  Onboarding: { initialStep?: number } | undefined;
   MainTab: NavigatorScreenParams<MainTabParamList> | undefined;
   Verify: { imageUri: string; ocrText?: string };
   Result: { analysis: FoodAnalysis; imageUri: string };

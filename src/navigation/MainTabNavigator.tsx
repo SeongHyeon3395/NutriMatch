@@ -20,7 +20,7 @@ export default function MainTabNavigator() {
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        animation: 'shift',
+        animation: 'none',
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.textGray,
         tabBarStyle: {

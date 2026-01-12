@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import React, { useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import ImagePicker from 'react-native-image-crop-picker';
@@ -9,15 +9,130 @@ import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
+import { useUserStore } from '../../store/userStore';
+import { FoodGrade } from '../../types/user';
+import { getSessionUserId, listFoodLogsRemote } from '../../services/userData';
 
 export default function MealScreen() {
   const navigation = useNavigation<any>();
   const { alert } = useAppAlert();
 
-  const recentMeals = [
-    { id: 'recent-1', title: '닭가슴살 샐러드', date: '오늘, 오후 12:30', calories: 450, grade: 'A' as const },
-    { id: 'recent-2', title: '아보카도 토스트', date: '오늘, 오전 08:10', calories: 320, grade: 'A' as const },
-  ];
+  const profile = useUserStore(state => state.profile);
+  const isMaster =
+    (profile as any)?.plan_id === 'master' ||
+    profile?.id === 'local-master' ||
+    profile?.username === 'master';
+
+  const foodLogs = useUserStore(state => state.foodLogs);
+  const loadFoodLogs = useUserStore(state => state.loadFoodLogs);
+  const setFoodLogs = useUserStore(state => state.setFoodLogs);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const userId = await getSessionUserId().catch(() => null);
+      if (!mounted) return;
+
+      if (userId) {
+        try {
+          const remote = await listFoodLogsRemote(100);
+          if (!mounted) return;
+          if (typeof setFoodLogs === 'function') setFoodLogs(remote);
+          return;
+        } catch {
+          // 서버 실패 시 로컬 폴백
+        }
+      }
+
+      await loadFoodLogs();
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [loadFoodLogs, setFoodLogs]);
+
+  const gradeToLetter = (grade?: FoodGrade) => {
+    switch (grade) {
+      case 'very_good':
+        return 'A';
+      case 'good':
+        return 'B';
+      case 'neutral':
+        return 'C';
+      case 'bad':
+        return 'D';
+      case 'very_bad':
+        return 'F';
+      default:
+        return 'C';
+    }
+  };
+
+  const letterToVariant = (letter: string) => {
+    switch (letter) {
+      case 'A':
+      case 'B':
+        return 'success' as const;
+      case 'C':
+        return 'warning' as const;
+      case 'D':
+      case 'F':
+        return 'danger' as const;
+      default:
+        return 'default' as const;
+    }
+  };
+
+  const recentMeals = useMemo(() => {
+    if (isMaster) {
+      return [
+        { id: 'recent-1', title: '닭가슴살 샐러드', date: '오늘, 오후 12:30', calories: 450, grade: 'A' as const },
+        { id: 'recent-2', title: '아보카도 토스트', date: '오늘, 오전 08:10', calories: 320, grade: 'A' as const },
+      ];
+    }
+
+    return (foodLogs || [])
+      .slice()
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+      .slice(0, 2)
+      .map(log => {
+        const calories = log.analysis?.macros?.calories;
+        const gradeLetter = gradeToLetter(log.analysis?.userAnalysis?.grade);
+        const displayDate = (() => {
+          try {
+            return new Date(log.timestamp).toLocaleString('ko-KR');
+          } catch {
+            return log.timestamp;
+          }
+        })();
+
+        return {
+          id: log.id,
+          title: log.analysis?.dishName ?? '기록',
+          date: displayDate,
+          calories: typeof calories === 'number' ? calories : 0,
+          grade: gradeLetter as 'A' | 'B' | 'C' | 'D' | 'F',
+          __kind: 'real' as const,
+          imageUri: log.imageUri,
+          analysis: log.analysis,
+        };
+      });
+  }, [foodLogs, isMaster]);
+
+  const handlePressItem = (item: any) => {
+    if (item?.__kind === 'real' && item?.imageUri && item?.analysis) {
+      navigation.navigate('Result', { imageUri: item.imageUri, analysis: item.analysis });
+      return;
+    }
+
+    navigation.navigate('MealDetail', {
+      title: item.title,
+      date: item.date,
+      calories: item.calories,
+      grade: item.grade,
+    });
+  };
 
   const handleCamera = async () => {
     try {
@@ -106,39 +221,38 @@ export default function MealScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Mock Data Items */}
-          {recentMeals.map(item => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.historyItem}
-              onPress={() =>
-                navigation.navigate('MealDetail', {
-                  title: item.title,
-                  date: item.date,
-                  calories: item.calories,
-                  grade: item.grade,
-                })
-              }
-            >
-              <View style={styles.historyIcon}>
-                <AppIcon name="restaurant" size={20} color={COLORS.textSecondary} />
-              </View>
-              <View style={styles.historyContent}>
-                <Text style={styles.historyTitle}>{item.title}</Text>
-                <View style={styles.historyMeta}>
-                  <AppIcon name="access-time" size={12} color={COLORS.textSecondary} />
-                  <Text style={styles.historyTime}>{item.date}</Text>
-                  <Text style={styles.dot}>•</Text>
-                  <Text style={styles.calories}>{item.calories} kcal</Text>
+          {recentMeals.length === 0 ? (
+            <Card style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>아직 기록이 없어요</Text>
+              <Text style={styles.emptyDesc}>음식을 스캔해 기록을 남겨보세요.</Text>
+            </Card>
+          ) : (
+            recentMeals.map(item => (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.historyItem}
+                onPress={() => handlePressItem(item)}
+              >
+                <View style={styles.historyIcon}>
+                  <AppIcon name="restaurant" size={20} color={COLORS.textSecondary} />
                 </View>
-              </View>
-              <Badge variant="success" text={item.grade} />
-              <View style={{ marginLeft: 8, alignItems: 'flex-end' }}>
-                <Text style={styles.detailHint}>자세히 보기</Text>
-                <AppIcon name="chevron-right" size={22} color={COLORS.textSecondary} />
-              </View>
-            </TouchableOpacity>
-          ))}
+                <View style={styles.historyContent}>
+                  <Text style={styles.historyTitle}>{item.title}</Text>
+                  <View style={styles.historyMeta}>
+                    <AppIcon name="access-time" size={12} color={COLORS.textSecondary} />
+                    <Text style={styles.historyTime}>{item.date}</Text>
+                    <Text style={styles.dot}>•</Text>
+                    <Text style={styles.calories}>{item.calories} kcal</Text>
+                  </View>
+                </View>
+                <Badge variant={letterToVariant(item.grade)} text={item.grade} />
+                <View style={{ marginLeft: 8, alignItems: 'flex-end' }}>
+                  <Text style={styles.detailHint}>자세히 보기</Text>
+                  <AppIcon name="chevron-right" size={22} color={COLORS.textSecondary} />
+                </View>
+              </TouchableOpacity>
+            ))
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -253,6 +367,21 @@ const styles = StyleSheet.create({
   historyMeta: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  emptyCard: {
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 6,
+  },
+  emptyDesc: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
   },
   historyTime: {
     fontSize: 12,

@@ -9,6 +9,8 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
 import { supabase } from '../../services/supabaseClient';
+import { getSessionUserId, resetMyAccountDataRemote } from '../../services/userData';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type RowProps = {
   title: string;
@@ -65,23 +67,48 @@ export default function SettingsScreen() {
     });
   }, [alert, clearAllData, navigation]);
 
-  const handleClearLocal = useCallback(() => {
+  const handleResetAccountData = useCallback(() => {
     alert({
-      title: '데이터 초기화',
-      message: '이 기기에 저장된 프로필/기록 데이터를 삭제합니다. 계속할까요?',
+      title: '계정 데이터 초기화',
+      message: '식단/히스토리 기록을 삭제하고 신체정보를 초기화합니다.\n초기화 후 신체정보를 다시 입력해야 합니다.\n계속할까요?',
       actions: [
         { text: '취소', variant: 'outline' },
         {
-          text: '삭제',
+          text: '초기화',
           variant: 'danger',
           onPress: async () => {
+            try {
+              await resetMyAccountDataRemote();
+            } catch {
+              // 서버 초기화 실패 시에도 로컬은 초기화하지 않음
+              alert({ title: '실패', message: '계정 데이터 초기화에 실패했습니다. 잠시 후 다시 시도해주세요.' });
+              return;
+            }
+
+            // 계정 데이터 초기화 시에는 튜토리얼도 다시 보여주기 위해 키를 초기화
+            try {
+              const userId = await getSessionUserId().catch(() => null);
+              const keys = [
+                '@nutrimatch_scan_tutorial_seen',
+                '@nutrimatch_scan_tutorial_phase',
+                userId ? `@nutrimatch_scan_tutorial_seen:${userId}` : null,
+                userId ? `@nutrimatch_scan_tutorial_phase:${userId}` : null,
+              ].filter(Boolean) as string[];
+              await AsyncStorage.multiRemove(keys);
+            } catch {
+              // ignore
+            }
+
             await clearAllData();
-            alert({ title: '완료', message: '로컬 데이터가 초기화되었습니다.' });
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Onboarding' as never, params: { initialStep: 1 } as never }],
+            });
           },
         },
       ],
     });
-  }, [alert, clearAllData]);
+  }, [alert, clearAllData, navigation]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -115,7 +142,11 @@ export default function SettingsScreen() {
         </Card>
 
         <Card style={styles.card}>
-          <Row title="로컬 데이터 초기화" description="이 기기에 저장된 프로필/기록 삭제" onPress={handleClearLocal} />
+          <Row
+            title="계정 데이터 초기화"
+            description="신체정보/식단/히스토리 초기화"
+            onPress={handleResetAccountData}
+          />
           <View style={styles.divider} />
           <Row title="로그아웃" onPress={handleLogout} />
         </Card>

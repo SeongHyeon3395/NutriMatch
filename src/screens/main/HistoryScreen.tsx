@@ -5,8 +5,10 @@ import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/colors';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
+import { Card } from '../../components/ui/Card';
 import { useUserStore } from '../../store/userStore';
 import { FoodGrade } from '../../types/user';
+import { getSessionUserId, listFoodLogsRemote } from '../../services/userData';
 
 // Mock Data
 const MOCK_HISTORY = [
@@ -57,12 +59,40 @@ export default function HistoryScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('전체'); // All, Meals, Products
 
+  const profile = useUserStore(state => state.profile);
   const foodLogs = useUserStore(state => state.foodLogs);
   const loadFoodLogs = useUserStore(state => state.loadFoodLogs);
+  const setFoodLogs = useUserStore(state => state.setFoodLogs);
+
+  const isMaster =
+    (profile as any)?.plan_id === 'master' ||
+    profile?.id === 'local-master' ||
+    profile?.username === 'master';
 
   useEffect(() => {
-    loadFoodLogs();
-  }, [loadFoodLogs]);
+    let mounted = true;
+    (async () => {
+      const userId = await getSessionUserId().catch(() => null);
+      if (!mounted) return;
+
+      if (userId) {
+        try {
+          const remote = await listFoodLogsRemote(100);
+          if (!mounted) return;
+          if (typeof setFoodLogs === 'function') setFoodLogs(remote);
+          return;
+        } catch {
+          // 서버 실패 시 로컬 폴백
+        }
+      }
+
+      await loadFoodLogs();
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [loadFoodLogs, setFoodLogs]);
 
   const gradeToLetter = (grade?: FoodGrade) => {
     switch (grade) {
@@ -70,7 +100,7 @@ export default function HistoryScreen() {
       case 'good': return 'B';
       case 'neutral': return 'C';
       case 'bad': return 'D';
-      case 'very_bad': return 'E';
+      case 'very_bad': return 'F';
       default: return 'C';
     }
   };
@@ -103,7 +133,7 @@ export default function HistoryScreen() {
         };
       });
 
-    const base = realItems.length > 0 ? realItems : (MOCK_HISTORY as any[]);
+    const base = realItems.length > 0 ? realItems : (isMaster ? (MOCK_HISTORY as any[]) : []);
 
     const filtered = base.filter(item => {
       const matchesFilter =
@@ -120,7 +150,7 @@ export default function HistoryScreen() {
     });
 
     return filtered;
-  }, [activeFilter, foodLogs, searchQuery]);
+  }, [activeFilter, foodLogs, isMaster, searchQuery]);
 
   const getGradeLabel = (grade: string) => {
     switch (grade) {
@@ -132,7 +162,7 @@ export default function HistoryScreen() {
         return '보통';
       case 'D':
         return '나쁨';
-      case 'E':
+      case 'F':
         return '매우나쁨';
       default:
         return grade;
@@ -147,7 +177,7 @@ export default function HistoryScreen() {
       case 'C':
         return 'warning' as const;
       case 'D':
-      case 'E':
+      case 'F':
         return 'danger' as const;
       default:
         return 'default' as const;
@@ -204,6 +234,13 @@ export default function HistoryScreen() {
     </TouchableOpacity>
   );
 
+  const renderEmpty = () => (
+    <Card style={styles.emptyCard}>
+      <Text style={styles.emptyTitle}>아직 기록이 없어요</Text>
+      <Text style={styles.emptyDesc}>음식을 스캔해 기록을 남겨보세요.</Text>
+    </Card>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -252,6 +289,7 @@ export default function HistoryScreen() {
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
+        ListEmptyComponent={renderEmpty}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews
         initialNumToRender={12}
@@ -325,6 +363,21 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 16,
+  },
+  emptyCard: {
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 6,
+  },
+  emptyDesc: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
   },
   itemCard: {
     flexDirection: 'row',

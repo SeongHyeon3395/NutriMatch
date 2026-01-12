@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { RootStackParamList } from '../../navigation/types';
@@ -20,6 +20,8 @@ import { COLORS, RADIUS, SPACING } from '../../constants/colors';
 import { ALL_ALLERGENS, BODY_GOALS, HEALTH_DIETS, LIFESTYLE_DIETS } from '../../constants';
 import { useUserStore } from '../../store/userStore';
 import type { BodyGoalType, HealthDietType, LifestyleDietType, UserProfile } from '../../types/user';
+import { fetchMyAppUser, getSessionUserId, insertBodyLogRemote } from '../../services/userData';
+import { useAppAlert } from '../../components/ui/AppAlert';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Onboarding'>;
 
@@ -27,14 +29,60 @@ const { width } = Dimensions.get('window');
 
 export default function OnboardingScreen() {
   const navigation = useNavigation<NavigationProp>();
+  const route = useRoute();
+  const { alert } = useAppAlert();
+  const profile = useUserStore(state => state.profile);
   const setProfile = useUserStore(state => state.setProfile);
+  const updateProfile = useUserStore(state => state.updateProfile);
   const addBodyLog = useUserStore(state => state.addBodyLog);
 
-  const [step, setStep] = useState(1);
-  const [bodyGoal, setBodyGoal] = useState<BodyGoalType | null>(null);
-  const [healthDiet, setHealthDiet] = useState<HealthDietType | null>(null);
-  const [lifestyleDiet, setLifestyleDiet] = useState<LifestyleDietType | null>(null);
-  const [selectedAllergens, setSelectedAllergens] = useState<string[]>([]);
+  // 이미 신체정보(온보딩)가 저장된 유저는 다시 온보딩 화면에 접근하지 못하게 막음
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const userId = await getSessionUserId().catch(() => null);
+      if (!userId) {
+        if (profile?.onboardingCompleted) {
+          navigation.replace('MainTab', { screen: 'Scan' } as any);
+        }
+        return;
+      }
+
+      try {
+        const remote = await fetchMyAppUser();
+        if (!mounted) return;
+        await setProfile(remote as any);
+        if (remote?.onboardingCompleted) {
+          alert({
+            title: '이미 설정 완료',
+            message: '신체정보가 이미 저장되어 있어요.\n변경은 내 정보 > 수정에서 할 수 있습니다.',
+          });
+          navigation.replace('MainTab', { screen: 'Scan' } as any);
+        }
+      } catch {
+        // 원격 조회 실패 시에도 로컬 프로필이 완료 상태면 막음
+        if (profile?.onboardingCompleted) {
+          navigation.replace('MainTab', { screen: 'Scan' } as any);
+        }
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [alert, navigation, profile?.onboardingCompleted, setProfile]);
+
+  const initialStep = (() => {
+    const p = (route as any)?.params;
+    const raw = p?.initialStep;
+    const n = typeof raw === 'number' ? raw : 1;
+    return Math.max(1, Math.min(4, n));
+  })();
+
+  const [step, setStep] = useState(() => initialStep);
+  const [bodyGoal, setBodyGoal] = useState<BodyGoalType | null>(() => (profile?.bodyGoal as any) ?? null);
+  const [healthDiet, setHealthDiet] = useState<HealthDietType | null>(() => (profile?.healthDiet as any) ?? null);
+  const [lifestyleDiet, setLifestyleDiet] = useState<LifestyleDietType | null>(() => (profile?.lifestyleDiet as any) ?? null);
+  const [selectedAllergens, setSelectedAllergens] = useState<string[]>(() => (Array.isArray(profile?.allergens) ? profile!.allergens : []));
   const [allergenSearch, setAllergenSearch] = useState('');
   const [customAllergen, setCustomAllergen] = useState('');
 
@@ -43,6 +91,17 @@ export default function OnboardingScreen() {
   const [heightText, setHeightText] = useState('');
   const [ageText, setAgeText] = useState('');
   const [gender, setGender] = useState<'male' | 'female' | ''>('');
+
+  useEffect(() => {
+    if (!profile) return;
+    // step 4로 바로 진입하는 경우를 포함해, 앞 단계 값이 비어 있으면 프로필 값으로 채움
+    if (!bodyGoal && profile.bodyGoal) setBodyGoal(profile.bodyGoal as any);
+    if (!healthDiet && profile.healthDiet) setHealthDiet(profile.healthDiet as any);
+    if (!lifestyleDiet && profile.lifestyleDiet) setLifestyleDiet(profile.lifestyleDiet as any);
+    if (selectedAllergens.length === 0 && Array.isArray(profile.allergens) && profile.allergens.length > 0) {
+      setSelectedAllergens(profile.allergens);
+    }
+  }, [bodyGoal, healthDiet, lifestyleDiet, profile, selectedAllergens.length]);
 
   const progressAnim = useRef(new Animated.Value(25)).current;
 
@@ -76,43 +135,118 @@ export default function OnboardingScreen() {
     const height = parseNumber(heightText);
     const age = parseNumber(ageText);
 
-    const newProfile: UserProfile = {
-      id: Date.now().toString(),
-      email: 'test@example.com',
-      name: '테스트 유저',
-      bodyGoal: bodyGoal!,
-      healthDiet: healthDiet!,
-      lifestyleDiet: lifestyleDiet!,
+    // 4단계는 선택 입력: 비워도 진행 가능.
+    // 다만 사용자가 값을 입력했는데 유효하지 않으면 안내.
+    const hasCurrentWeight = currentWeightText.trim().length > 0;
+    const hasTargetWeight = targetWeightText.trim().length > 0;
+    const hasHeight = heightText.trim().length > 0;
+    const hasAge = ageText.trim().length > 0;
+
+    if (hasCurrentWeight && !(typeof currentWeight === 'number' && currentWeight > 0)) {
+      alert({ title: '현재 체중 확인', message: '현재 체중은 숫자(0보다 큼)로 입력해주세요.' });
+      return;
+    }
+    if (hasTargetWeight && !(typeof targetWeight === 'number' && targetWeight > 0)) {
+      alert({ title: '목표 체중 확인', message: '목표 체중은 숫자(0보다 큼)로 입력해주세요.' });
+      return;
+    }
+    if (hasHeight && !(typeof height === 'number' && height > 0)) {
+      alert({ title: '키 확인', message: '키는 숫자(0보다 큼)로 입력해주세요.' });
+      return;
+    }
+    if (hasAge && !(typeof age === 'number' && age > 0)) {
+      alert({ title: '나이 확인', message: '나이는 숫자(0보다 큼)로 입력해주세요.' });
+      return;
+    }
+
+    const updates: Partial<UserProfile> = {
       allergens: selectedAllergens,
-      currentWeight,
-      targetWeight,
-      height,
-      age,
-      gender: gender || undefined,
       onboardingCompleted: true,
-      createdAt: now,
-      updatedAt: now,
-      plan_id: 'free',
-      premium_quota_remaining: 0,
-      free_image_quota_remaining: 3,
     };
 
-    await setProfile(newProfile);
+    // 앞 단계 값은 있는 경우에만 업데이트 (step=4 직행 시 null 덮어쓰기 방지)
+    if (bodyGoal) updates.bodyGoal = bodyGoal;
+    if (healthDiet) updates.healthDiet = healthDiet;
+    if (lifestyleDiet) updates.lifestyleDiet = lifestyleDiet;
 
-    if (typeof currentWeight === 'number' && currentWeight > 0) {
-      try {
-        await addBodyLog({
-          id: `${Date.now()}`,
-          userId: newProfile.id,
-          weight: currentWeight,
-          timestamp: now,
-        });
-      } catch (e) {
-        console.error('Failed to save initial body log', e);
+    if (hasCurrentWeight) updates.currentWeight = currentWeight;
+    if (hasTargetWeight) updates.targetWeight = targetWeight;
+    if (hasHeight) updates.height = height;
+    if (hasAge) updates.age = age;
+    if (gender) updates.gender = gender;
+
+    const sessionUserId = await getSessionUserId().catch(() => null);
+
+    // 로그인 상태: 서버(app_users)에 저장 (userStore.updateProfile이 서버 동기화 포함)
+    if (sessionUserId) {
+      // profile이 아직 로딩 전인 극단 케이스 방어: 최소한의 로컬 프로필을 먼저 만든 뒤 업데이트
+      if (!profile) {
+        const bootstrapProfile: UserProfile = {
+          id: sessionUserId,
+          email: '',
+          name: '사용자',
+          bodyGoal: bodyGoal!,
+          healthDiet: healthDiet!,
+          lifestyleDiet: lifestyleDiet!,
+          allergens: selectedAllergens,
+          onboardingCompleted: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await setProfile(bootstrapProfile);
+      }
+
+      await updateProfile(updates);
+
+      if (typeof currentWeight === 'number' && currentWeight > 0) {
+        try {
+          const remoteLog = await insertBodyLogRemote({ userId: sessionUserId, weight: currentWeight, timestamp: now });
+          await addBodyLog(remoteLog);
+        } catch {
+          // body_logs 저장 실패는 온보딩 자체를 막지 않음
+        }
+      }
+    } else {
+      // 비로그인 로컬 모드 유지
+      if (!profile) {
+        const localProfile: UserProfile = {
+          id: Date.now().toString(),
+          email: '',
+          name: '사용자',
+          bodyGoal: bodyGoal!,
+          healthDiet: healthDiet!,
+          lifestyleDiet: lifestyleDiet!,
+          allergens: selectedAllergens,
+          currentWeight,
+          targetWeight,
+          height,
+          age,
+          gender: gender || undefined,
+          onboardingCompleted: true,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await setProfile(localProfile);
+      } else {
+        await updateProfile(updates);
+      }
+
+      if (typeof currentWeight === 'number' && currentWeight > 0) {
+        try {
+          await addBodyLog({
+            id: `${Date.now()}`,
+            userId: profile?.id || Date.now().toString(),
+            weight: currentWeight,
+            timestamp: now,
+          });
+        } catch {
+          // ignore
+        }
       }
     }
 
-    navigation.replace('MainTab');
+    // 온보딩 직후 스캔 탭으로 보내 튜토리얼이 자연스럽게 이어지게 함
+    navigation.replace('MainTab', { screen: 'Scan' });
   };
 
   const handleBack = () => {
@@ -235,11 +369,13 @@ export default function OnboardingScreen() {
     return (
       <View>
         <Text style={styles.stepTitle}>추가 정보를 입력하세요</Text>
-        <Text style={styles.stepSubtitle}>맞춤 분석과 기록에 활용됩니다</Text>
+        <Text style={styles.stepSubtitle}>
+          맞춤 분석과 기록에 활용됩니다. 더 정확한 분석을 원하시면 가능한 범위에서 입력해주세요.
+        </Text>
 
         <View style={styles.sectionBlock}>
           <Text style={styles.sectionTitle}>신체 정보 (선택)</Text>
-          <Text style={styles.sectionDesc}>체중은 첫 신체 기록으로 저장돼요.</Text>
+          <Text style={styles.sectionDesc}>입력하면 더 정확한 맞춤 분석에 도움이 됩니다. (체중은 첫 신체 기록으로 저장)</Text>
 
           <View style={styles.fieldRow}>
             <View style={styles.field}>
@@ -289,7 +425,7 @@ export default function OnboardingScreen() {
             </View>
           </View>
 
-          <Text style={[styles.formLabel, { marginTop: 10 }]}>성별</Text>
+          <Text style={[styles.formLabel, { marginTop: 10 }]}>성별 (선택)</Text>
           <View style={styles.chipRow}>
             {([
               { id: 'male', label: '남' },
@@ -309,8 +445,8 @@ export default function OnboardingScreen() {
         </View>
 
         <View style={styles.sectionBlock}>
-          <Text style={styles.sectionTitle}>알레르기 성분</Text>
-          <Text style={styles.sectionDesc}>위험 성분을 자동으로 감지합니다</Text>
+          <Text style={styles.sectionTitle}>알레르기 성분 (선택)</Text>
+          <Text style={styles.sectionDesc}>입력하면 위험 성분을 더 잘 감지할 수 있어요. 해당되는 성분이 없으면 비워도 됩니다.</Text>
         </View>
 
         <View style={styles.searchContainer}>

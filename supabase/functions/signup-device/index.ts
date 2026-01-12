@@ -1,4 +1,5 @@
 // @ts-nocheck
+// @ts-nocheck
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -54,7 +55,6 @@ serve(async (req: Request) => {
     const username = String(body?.username ?? '').trim();
     const nickname = String(body?.nickname ?? '').trim();
     const password = String(body?.password ?? '');
-    const deviceId = String(body?.deviceId ?? '').trim();
 
     // Optional profile fields (for onboarding/edit flows)
     const bodyGoal = toOptionalText(body?.bodyGoal ?? body?.body_goal);
@@ -81,29 +81,15 @@ serve(async (req: Request) => {
       allergens = cleaned;
     }
 
-    const planId = toOptionalText(body?.planId ?? body?.plan_id);
-    const premiumQuotaRemaining = toOptionalInt(body?.premiumQuotaRemaining ?? body?.premium_quota_remaining);
-    const freeImageQuotaRemaining = toOptionalInt(body?.freeImageQuotaRemaining ?? body?.free_image_quota_remaining);
+    // plans/quota are intentionally excluded from the final DB schema
 
     if (!username) return json(400, { ok: false, message: '아이디가 필요합니다.' });
     if (!nickname) return json(400, { ok: false, message: '닉네임이 필요합니다.' });
-    if (!deviceId) return json(400, { ok: false, message: 'deviceId가 필요합니다.' });
     if (!isStrongPassword(password)) {
       return json(400, { ok: false, message: '비밀번호는 8자 이상, 특수문자를 포함해야 합니다.' });
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // deviceId 중복 체크
-    const { data: existingDevice, error: deviceErr } = await supabase
-      .from('app_users')
-      .select('id')
-      .eq('device_id', deviceId)
-      .maybeSingle();
-    if (deviceErr) throw deviceErr;
-    if (existingDevice?.id) {
-      return json(409, { ok: false, message: '이미 무료 혜택을 사용한 기기입니다.' });
-    }
 
     // username 중복 체크
     const { data: existingUser, error: userErr } = await supabase
@@ -125,13 +111,11 @@ serve(async (req: Request) => {
       user_metadata: {
         username,
         nickname,
-        device_id: deviceId,
         body_goal: bodyGoal,
         health_diet: healthDiet,
         lifestyle_diet: lifestyleDiet,
         allergens,
         onboarding_completed: onboardingCompleted,
-        plan_id: planId,
       },
     });
     if (createErr) {
@@ -150,7 +134,7 @@ serve(async (req: Request) => {
       id: authUserId,
       username,
       nickname,
-      device_id: deviceId,
+      device_id: null,
     };
 
     if (bodyGoal) appUserRow.body_goal = bodyGoal;
@@ -158,9 +142,6 @@ serve(async (req: Request) => {
     if (lifestyleDiet) appUserRow.lifestyle_diet = lifestyleDiet;
     if (Array.isArray(allergens)) appUserRow.allergens = allergens;
     if (onboardingCompleted !== null) appUserRow.onboarding_completed = onboardingCompleted;
-    if (planId) appUserRow.plan_id = planId;
-    if (premiumQuotaRemaining !== null) appUserRow.premium_quota_remaining = premiumQuotaRemaining;
-    if (freeImageQuotaRemaining !== null) appUserRow.free_image_quota_remaining = freeImageQuotaRemaining;
 
     const { data: inserted, error: insertErr } = await supabase
       .from('app_users')
@@ -176,14 +157,6 @@ serve(async (req: Request) => {
         // ignore
       }
       throw insertErr;
-    }
-
-    // 무료 혜택 사용 기록(원하면 별도 정책/테이블로 관리)
-    // 로그 테이블 insert 실패는 회원가입 자체를 막지 않음
-    try {
-      await supabase.from('free_trial_logs').insert({ device_id: deviceId, user_id: inserted.id });
-    } catch {
-      // ignore
     }
 
     return json(200, { ok: true, data: { userId: inserted.id } });

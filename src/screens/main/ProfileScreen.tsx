@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/colors';
@@ -10,16 +10,126 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
 import { supabase } from '../../services/supabaseClient';
+import { getMonthlyAverageGradeLetterRemote, getMonthlyScanCountRemote, getSessionUserId, updateMyProfileAvatarRemote } from '../../services/userData';
+import { MONTHLY_SCAN_LIMIT } from '../../config';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
   const { alert } = useAppAlert();
 
   const profile = useUserStore(state => state.profile);
+  const clearAllData = useUserStore(state => state.clearAllData);
+  const setProfile = useUserStore(state => state.setProfile);
+
+  const [monthlyScanCount, setMonthlyScanCount] = useState<number | null>(null);
+  const [monthlyGradeLetter, setMonthlyGradeLetter] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
 
   const userName = profile?.nickname || profile?.name || '사용자';
-  const userEmail = profile?.email || '';
-  const plan = profile?.plan_id ? String(profile.plan_id) : 'free';
+  const plan = profile?.plan_id ? String(profile.plan_id) : 'Free';
+
+  const usedThisMonth = typeof monthlyScanCount === 'number' ? monthlyScanCount : null;
+  const remainingThisMonth = typeof usedThisMonth === 'number' ? Math.max(0, MONTHLY_SCAN_LIMIT - usedThisMonth) : null;
+
+  const avatarPath = profile?.avatarPath || null;
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!avatarPath) {
+        if (mounted) setAvatarUrl(null);
+        return;
+      }
+      try {
+        if (!supabase) {
+          if (mounted) setAvatarUrl(null);
+          return;
+        }
+        const { data, error } = await supabase.storage.from('profile-avatars').createSignedUrl(avatarPath, 60 * 60 * 24 * 7);
+        if (!mounted) return;
+        if (error) {
+          setAvatarUrl(null);
+          return;
+        }
+        setAvatarUrl(data.signedUrl);
+      } catch {
+        if (mounted) setAvatarUrl(null);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [avatarPath]);
+
+  const handleEditAvatar = useCallback(async () => {
+    if (!profile?.id) {
+      alert({ title: '로그인이 필요해요', message: '로그인 후 프로필 사진을 변경할 수 있습니다.' });
+      return;
+    }
+    if (isUpdatingAvatar) return;
+
+    try {
+      const ImagePicker = require('react-native-image-crop-picker');
+      const picked = await ImagePicker.openPicker({
+        mediaType: 'photo',
+        cropping: true,
+        cropperCircleOverlay: true,
+        compressImageQuality: 0.9,
+        includeBase64: true,
+      });
+
+      const localUri = String(picked?.path ?? '').trim();
+      if (!localUri) return;
+
+      const base64 = typeof picked?.data === 'string' ? picked.data : null;
+
+      setIsUpdatingAvatar(true);
+      const result = await updateMyProfileAvatarRemote({
+        localUri,
+        base64,
+        mime: picked?.mime ?? null,
+        previousAvatarPath: profile.avatarPath ?? null,
+      });
+
+      await setProfile(result.profile);
+      setAvatarUrl(result.signedUrl ?? null);
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      // 취소 케이스는 조용히 무시
+      if (/cancel/i.test(msg)) return;
+      alert({ title: '프로필 사진 변경 실패', message: msg });
+    } finally {
+      setIsUpdatingAvatar(false);
+    }
+  }, [alert, isUpdatingAvatar, profile?.avatarPath, profile?.id, setProfile]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const userId = await getSessionUserId().catch(() => null);
+        if (!userId) {
+          if (mounted) setMonthlyScanCount(null);
+          if (mounted) setMonthlyGradeLetter(null);
+          return;
+        }
+        const [n, gradeLetter] = await Promise.all([
+          getMonthlyScanCountRemote().catch(() => null),
+          getMonthlyAverageGradeLetterRemote().catch(() => null),
+        ]);
+        if (!mounted) return;
+        setMonthlyScanCount(typeof n === 'number' ? n : 0);
+        setMonthlyGradeLetter(typeof gradeLetter === 'string' ? gradeLetter : null);
+      } catch {
+        if (mounted) setMonthlyScanCount(null);
+        if (mounted) setMonthlyGradeLetter(null);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [profile?.id]);
 
   const menuItems = [
     { iconName: 'person', label: '내 정보', route: 'PersonalInfo' },
@@ -44,6 +154,11 @@ export default function ProfileScreen() {
             } catch {
               // ignore
             }
+            try {
+              await clearAllData();
+            } catch {
+              // ignore
+            }
             navigation.reset({
               index: 0,
               routes: [{ name: 'Login' as never }],
@@ -59,12 +174,25 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header Profile Section */}
         <View style={styles.header}>
-          <View style={styles.avatarContainer}>
-            <Text style={styles.avatarText}>{userName.charAt(0)}</Text>
+          <View style={styles.avatarBlock}>
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={handleEditAvatar}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="프로필 이미지 추가"
+            >
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+              ) : isUpdatingAvatar ? (
+                <ActivityIndicator color={COLORS.text} />
+              ) : (
+                <AppIcon name="add" size={30} color={COLORS.text} />
+              )}
+            </TouchableOpacity>
           </View>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{userName}</Text>
-            {!!userEmail && <Text style={styles.userEmail}>{userEmail}</Text>}
+              <Text style={styles.userName}>{userName} 님</Text>
             <View style={styles.planBadge}>
               <Badge variant="secondary" text={plan + ' 플랜'} />
             </View>
@@ -77,12 +205,14 @@ export default function ProfileScreen() {
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
           <Card style={styles.statCard}>
-            <Text style={styles.statValue}>-</Text>
-            <Text style={styles.statLabel}>이번 달 스캔</Text>
+            <Text style={styles.statValue}>{typeof remainingThisMonth === 'number' ? String(remainingThisMonth) : '-'}</Text>
+            <Text style={styles.statLabel}>이번 달 남은 스캔</Text>
           </Card>
           <Card style={styles.statCard}>
-            <Text style={styles.statValue}>-</Text>
-            <Text style={styles.statLabel}>평균 등급</Text>
+            <Text style={styles.statValue}>
+              {monthlyGradeLetter || '-'}
+            </Text>
+            <Text style={styles.statLabel}>이번 달 등급</Text>
           </Card>
         </View>
 
@@ -152,19 +282,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  avatarBlock: {
+    alignItems: 'center',
+    marginRight: 16,
+  },
   avatarContainer: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.text,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    overflow: 'hidden',
   },
-  avatarText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: 'white',
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  avatarHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: COLORS.textSecondary,
   },
   userInfo: {
     flex: 1,

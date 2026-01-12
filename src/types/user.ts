@@ -12,6 +12,9 @@ export interface UserProfile {
   // App account fields (optional for compatibility)
   username?: string;
   nickname?: string;
+
+  // Profile avatar (Supabase Storage path)
+  avatarPath?: string;
   
   // New fields
   bodyGoal: BodyGoalType;

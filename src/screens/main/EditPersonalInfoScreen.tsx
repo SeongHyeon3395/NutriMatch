@@ -11,18 +11,21 @@ import { useAppAlert, type AppAlertActionVariant } from '../../components/ui/App
 import { useUserStore } from '../../store/userStore';
 import { BODY_GOALS, HEALTH_DIETS, LIFESTYLE_DIETS } from '../../constants';
 import type { BodyGoalType, HealthDietType, LifestyleDietType } from '../../types/user';
+import { getSessionUserId, insertBodyLogRemote } from '../../services/userData';
 
 type EditRowProps = {
   label: string;
   value: string;
+  helperText?: string;
   onEdit: () => void;
 };
 
-function EditRow({ label, value, onEdit }: EditRowProps) {
+function EditRow({ label, value, helperText, onEdit }: EditRowProps) {
   return (
     <View style={styles.editRow}>
       <View style={styles.editRowLeft}>
         <Text style={styles.editRowLabel}>{label}</Text>
+        {!!helperText && <Text style={styles.editRowHelper}>{helperText}</Text>}
         <Text style={styles.editRowValue} numberOfLines={2}>
           {value}
         </Text>
@@ -41,6 +44,7 @@ export default function EditPersonalInfoScreen() {
   const profile = useUserStore(state => state.profile);
   const updateProfile = useUserStore(state => state.updateProfile);
   const addBodyLog = useUserStore(state => state.addBodyLog);
+  const [saving, setSaving] = useState(false);
 
   const [nicknameDraft, setNicknameDraft] = useState(profile?.nickname || profile?.name || '');
 
@@ -83,6 +87,7 @@ export default function EditPersonalInfoScreen() {
   }, [profile?.allergens]);
 
   const handleSaveAll = async () => {
+    if (saving) return;
     if (!profile) {
       alert({ title: '프로필 없음', message: '로그인/온보딩 후 변경할 수 있어요.' });
       return;
@@ -99,14 +104,19 @@ export default function EditPersonalInfoScreen() {
     const nextHeight = parseNumber(heightText);
     const nextAge = parseNumber(ageText);
 
-    await updateProfile({
-      nickname: nextNickname,
-      currentWeight: nextCurrentWeight,
-      targetWeight: nextTargetWeight,
-      height: nextHeight,
-      age: nextAge,
-      gender: gender || undefined,
-    });
+    try {
+      setSaving(true);
+      await updateProfile({
+        nickname: nextNickname,
+        currentWeight: nextCurrentWeight,
+        targetWeight: nextTargetWeight,
+        height: nextHeight,
+        age: nextAge,
+        gender: gender || undefined,
+      });
+    } finally {
+      setSaving(false);
+    }
 
     if (
       typeof nextCurrentWeight === 'number' &&
@@ -115,12 +125,23 @@ export default function EditPersonalInfoScreen() {
       nextCurrentWeight !== profile.currentWeight
     ) {
       try {
-        await addBodyLog({
-          id: `${Date.now()}`,
-          userId: profile.id,
-          weight: nextCurrentWeight,
-          timestamp: new Date().toISOString(),
-        });
+        const timestamp = new Date().toISOString();
+        const userId = await getSessionUserId().catch(() => null);
+        if (userId) {
+          const saved = await insertBodyLogRemote({
+            userId,
+            weight: nextCurrentWeight,
+            timestamp,
+          });
+          await addBodyLog(saved);
+        } else {
+          await addBodyLog({
+            id: `${Date.now()}`,
+            userId: profile.id,
+            weight: nextCurrentWeight,
+            timestamp,
+          });
+        }
       } catch (e) {
         console.error('Failed to save body log', e);
       }
@@ -160,6 +181,7 @@ export default function EditPersonalInfoScreen() {
       actions: [
         ...HEALTH_DIETS.map(d => ({
           text: d.label,
+          description: d.description,
           variant: (profile.healthDiet === d.id ? 'primary' : 'outline') as AppAlertActionVariant,
           onPress: () => updateProfile({ healthDiet: d.id as HealthDietType }),
         })),
@@ -179,6 +201,7 @@ export default function EditPersonalInfoScreen() {
       actions: [
         ...LIFESTYLE_DIETS.map(d => ({
           text: d.label,
+          description: d.description,
           variant: (profile.lifestyleDiet === d.id ? 'primary' : 'outline') as AppAlertActionVariant,
           onPress: () => updateProfile({ lifestyleDiet: d.id as LifestyleDietType }),
         })),
@@ -193,7 +216,14 @@ export default function EditPersonalInfoScreen() {
           <AppIcon name="chevron-left" size={26} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>내 정보 수정</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity
+          onPress={handleSaveAll}
+          style={styles.saveButton}
+          accessibilityRole="button"
+          disabled={saving}
+        >
+          <Text style={[styles.saveButtonText, saving && { opacity: 0.6 }]}>저장</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -213,8 +243,18 @@ export default function EditPersonalInfoScreen() {
         <Card style={styles.card}>
           <Text style={styles.sectionTitle}>내 설정</Text>
           <EditRow label="체형 목표" value={bodyGoalLabel} onEdit={openBodyGoalAlert} />
-          <EditRow label="건강 목적" value={healthDietLabel} onEdit={openHealthDietAlert} />
-          <EditRow label="식습관" value={lifestyleDietLabel} onEdit={openLifestyleDietAlert} />
+          <EditRow
+            label="건강 목적"
+            helperText="(예: 혈압/혈당/염증 등 건강 관리 목적)"
+            value={healthDietLabel}
+            onEdit={openHealthDietAlert}
+          />
+          <EditRow
+            label="식습관"
+            helperText="(예: 채식/키토/글루텐프리 등 식습관 제약)"
+            value={lifestyleDietLabel}
+            onEdit={openLifestyleDietAlert}
+          />
           <EditRow
             label="알레르기"
             value={allergensLabel}
@@ -293,10 +333,6 @@ export default function EditPersonalInfoScreen() {
 
         </Card>
 
-        <View style={{ height: 6 }} />
-        <Button onPress={handleSaveAll}>
-          확인
-        </Button>
       </ScrollView>
     </SafeAreaView>
   );
@@ -374,10 +410,27 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginBottom: 4,
   },
+  editRowHelper: {
+    fontSize: 11,
+    color: COLORS.textGray,
+    marginBottom: 6,
+  },
   editRowValue: {
     fontSize: 13,
     color: COLORS.text,
     fontWeight: '700',
+  },
+
+  saveButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveButtonText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: COLORS.primary,
   },
 
   fieldRow: {

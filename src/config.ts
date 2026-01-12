@@ -78,6 +78,10 @@ export const SUPABASE_ANON_KEY = ENV_SUPABASE_ANON_KEY || '';
 
 // External link (required by store policies). If empty, UI will prompt you to set it.
 export const PRIVACY_POLICY_URL = (ENV_PRIVACY_POLICY_URL || '').trim();
+
+// 기본 사용자 월 스캔 기회
+export const MONTHLY_SCAN_LIMIT = 5;
+
 export function buildSupabaseHeaders(token?: string) {
   const bearer = token || SUPABASE_ANON_KEY;
   return {

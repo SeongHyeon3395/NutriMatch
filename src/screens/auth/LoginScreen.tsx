@@ -16,8 +16,29 @@ import { COLORS } from '../../constants/colors';
 import { Button } from '../../components/ui/Button';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { isSupabaseConfigured, supabase } from '../../services/supabaseClient';
+import { fetchMyAppUser } from '../../services/userData';
 import { AppIcon } from '../../components/ui/AppIcon';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+
+function getDeviceLocaleTag(): string {
+  try {
+    const tag = Intl.DateTimeFormat().resolvedOptions().locale;
+    if (typeof tag === 'string' && tag.trim()) return tag;
+  } catch {
+    // ignore
+  }
+  try {
+    const navLang = (globalThis as any)?.navigator?.language;
+    if (typeof navLang === 'string' && navLang.trim()) return navLang;
+  } catch {
+    // ignore
+  }
+  return '';
+}
+
+function isKoreanLocale() {
+  const tag = getDeviceLocaleTag().toLowerCase();
+  return tag === 'ko' || tag.startsWith('ko-');
+}
 
 function GoogleMark({ size = 18 }: { size?: number }) {
   // 브랜드 에셋을 직접 포함하지 않고, 앱 팔레트로 "구글 느낌"을 맞춘 단순 마크입니다.
@@ -44,6 +65,8 @@ export default function LoginScreen() {
   const clearProfile = useUserStore(state => state.clearProfile);
   const setProfile = useUserStore(state => state.setProfile);
   const { alert } = useAppAlert();
+
+  const appTitle = useMemo(() => (isKoreanLocale() ? '뉴핏' : 'NewFit'), []);
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -83,11 +106,28 @@ export default function LoginScreen() {
       if (error) throw error;
       if (!data?.session) throw new Error('세션 생성에 실패했습니다.');
 
-      navigation.replace('MainTab');
+      // 서버 프로필(app_users) 로드 → UI에서 username/nickname 기반으로 표시
+      try {
+        const remoteProfile = await fetchMyAppUser();
+        await setProfile({
+          ...remoteProfile,
+          // 로컬 모드에서 쓰던 필드는 유지(서버 스키마에는 없음)
+          plan_id: (profile as any)?.plan_id,
+          premium_quota_remaining: (profile as any)?.premium_quota_remaining,
+          free_image_quota_remaining: (profile as any)?.free_image_quota_remaining,
+        } as any);
+      } catch {
+        // profile fetch 실패해도 로그인 자체는 유지
+      }
+      // 라우팅은 RootNavigator의 auth listener가 처리합니다.
     } catch (e: any) {
       alert({
         title: '로그인 실패',
-        message: e?.message || String(e),
+        message:
+          (e?.message || String(e)) +
+          (String(e?.message || '').includes('Invalid login credentials')
+            ? '\n\n(참고) 회원가입/로그인이 서로 다른 Supabase 프로젝트를 보고 있거나, SUPABASE_URL/BASE_URL 설정이 맞지 않을 때도 이 오류가 납니다.'
+            : ''),
       });
     } finally {
       setLoggingIn(false);
@@ -131,19 +171,14 @@ export default function LoginScreen() {
 
   const handleNewStart = async () => {
     await clearProfile();
-    try {
-      await AsyncStorage.removeItem('@nutrimatch_scan_tutorial_seen');
-    } catch {
-      // ignore
-    }
-    navigation.replace('Onboarding');
+    navigation.replace('Onboarding', { initialStep: 1 } as never);
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>NutriMatch</Text>
+          <Text style={styles.title}>{appTitle}</Text>
           <Text style={styles.subtitle}>나만의 AI 영양 관리 파트너</Text>
         </View>
 

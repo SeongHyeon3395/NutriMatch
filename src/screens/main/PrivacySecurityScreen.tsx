@@ -1,17 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  AppState,
+  type AppStateStatus,
   Linking,
+  Modal,
   PermissionsAndroid,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { COLORS, SPACING, RADIUS } from '../../constants/colors';
 import { Card } from '../../components/ui/Card';
@@ -21,6 +27,8 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
 import { PRIVACY_POLICY_URL } from '../../config';
+import { deleteMyAccountRemote, getSessionUserId } from '../../services/userData';
+import { supabase } from '../../services/supabaseClient';
 
 type PermissionStatus = 'granted' | 'denied' | 'unavailable' | 'unknown';
 
@@ -57,6 +65,25 @@ export default function PrivacySecurityScreen() {
   const [photosStatus, setPhotosStatus] = useState<PermissionStatus>('unknown');
   const [locationStatus, setLocationStatus] = useState<PermissionStatus>('unknown');
 
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const isDeletingAccountRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const requiredDeletePhrase = '확인했습니다';
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const safeSetIsDeletingAccount = useCallback((next: boolean) => {
+    if (!isMountedRef.current) return;
+    setIsDeletingAccount(next);
+  }, []);
+
   useEffect(() => {
     loadFoodLogs();
     loadBodyLogs();
@@ -83,8 +110,9 @@ export default function PrivacySecurityScreen() {
       const photos = await PermissionsAndroid.check(photosPerm);
       setPhotosStatus(photos ? 'granted' : 'denied');
 
-      const loc = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-      setLocationStatus(loc ? 'granted' : 'denied');
+      const fine = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+      const coarse = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION);
+      setLocationStatus(fine || coarse ? 'granted' : 'denied');
     } catch {
       setCameraStatus('unknown');
       setPhotosStatus('unknown');
@@ -94,6 +122,27 @@ export default function PrivacySecurityScreen() {
 
   useEffect(() => {
     refreshAndroidPermissions();
+  }, [refreshAndroidPermissions]);
+
+  // 화면이 다시 포커스될 때마다 권한 상태를 재확인
+  useFocusEffect(
+    useCallback(() => {
+      refreshAndroidPermissions();
+      return () => {
+        // no-op
+      };
+    }, [refreshAndroidPermissions])
+  );
+
+  // 설정 앱에서 돌아왔을 때(포그라운드 복귀) 권한 상태를 재확인
+  useEffect(() => {
+    const handler = (nextState: AppStateStatus) => {
+      if (nextState === 'active') {
+        refreshAndroidPermissions();
+      }
+    };
+    const sub = AppState.addEventListener('change', handler);
+    return () => sub.remove();
   }, [refreshAndroidPermissions]);
 
   const handleOpenPrivacyPolicy = useCallback(async () => {
@@ -134,26 +183,48 @@ export default function PrivacySecurityScreen() {
   }, [alert, bodyLogs, foodLogs, profile]);
 
   const handleDeleteAccount = useCallback(() => {
-    alert({
-      title: '계정 삭제',
-      message:
-        '계정을 삭제하면 이 기기에 저장된 프로필/기록 데이터가 즉시 삭제됩니다.\n계속 진행할까요?',
-      actions: [
-        { text: '취소', variant: 'outline' },
-        {
-          text: '삭제',
-          variant: 'danger',
-          onPress: async () => {
-            await clearAllData();
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Login' as never }],
-            });
-          },
-        },
-      ],
-    });
-  }, [alert, clearAllData, navigation]);
+    setDeleteConfirmText('');
+    setShowDeleteConfirm(true);
+  }, []);
+
+  const closeDeleteConfirm = useCallback(() => {
+    if (isDeletingAccountRef.current) return;
+    setShowDeleteConfirm(false);
+    setDeleteConfirmText('');
+  }, []);
+
+  const confirmAndDeleteAccount = useCallback(async () => {
+    if (deleteConfirmText.trim() !== requiredDeletePhrase) return;
+    if (isDeletingAccountRef.current) return;
+    isDeletingAccountRef.current = true;
+    safeSetIsDeletingAccount(true);
+
+    try {
+      const userId = await getSessionUserId().catch(() => null);
+      if (userId) {
+        await deleteMyAccountRemote();
+      }
+
+      try {
+        await supabase?.auth.signOut();
+      } catch {
+        // ignore
+      }
+
+      await clearAllData();
+      setShowDeleteConfirm(false);
+      navigation.reset({ index: 0, routes: [{ name: 'Login' as never }] });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : typeof e === 'string' ? e : String(e);
+      alert({
+        title: '탈퇴 실패',
+        message,
+      });
+    } finally {
+      isDeletingAccountRef.current = false;
+      safeSetIsDeletingAccount(false);
+    }
+  }, [alert, clearAllData, deleteConfirmText, navigation, requiredDeletePhrase, safeSetIsDeletingAccount]);
 
   const handleNotReady = useCallback(
     (title: string) => {
@@ -185,8 +256,103 @@ export default function PrivacySecurityScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <Modal
+        transparent
+        visible={showDeleteConfirm}
+        animationType="fade"
+        onRequestClose={closeDeleteConfirm}
+      >
+        <View style={styles.confirmModalRoot}>
+          <Pressable style={styles.confirmBackdropPressable} onPress={closeDeleteConfirm}>
+            <View style={styles.confirmBackdrop} />
+          </Pressable>
+
+          <View style={styles.confirmCenter} pointerEvents="box-none">
+            <Card style={styles.confirmCard}>
+              <View style={styles.confirmTitleRow}>
+                <Text style={styles.confirmTitle}>계정 삭제</Text>
+                <TouchableOpacity
+                  onPress={closeDeleteConfirm}
+                  style={styles.confirmCloseButton}
+                  accessibilityRole="button"
+                  disabled={isDeletingAccount}
+                >
+                  <AppIcon name="close" size={20} color={COLORS.textGray} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.confirmMessage}>
+                계정을 삭제하면 서버에 저장된 데이터가 모두 삭제됩니다.
+              </Text>
+              <View style={styles.confirmBullets}>
+                <Text style={styles.confirmBullet}>• 계정 정보(이메일/닉네임/프로필 등)</Text>
+                <Text style={styles.confirmBullet}>• 음식 분석 기록(히스토리/식단 기록) 및 관련 이미지</Text>
+                <Text style={styles.confirmBullet}>• 결제 내역/플랜 정보(구독/구매 기록 등)</Text>
+              </View>
+              <Text style={styles.confirmHint}>
+                계속하려면 아래 입력칸에 “{requiredDeletePhrase}”를 입력해주세요.
+              </Text>
+
+              <TextInput
+                value={deleteConfirmText}
+                onChangeText={setDeleteConfirmText}
+                placeholder={requiredDeletePhrase}
+                placeholderTextColor={COLORS.textSecondary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!isDeletingAccount}
+                style={styles.confirmInput}
+              />
+
+              <View style={styles.confirmActions}>
+                <Button
+                  title="취소"
+                  variant="outline"
+                  onPress={closeDeleteConfirm}
+                  disabled={isDeletingAccount}
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  title="삭제"
+                  variant="danger"
+                  onPress={confirmAndDeleteAccount}
+                  disabled={isDeletingAccount || deleteConfirmText.trim() !== requiredDeletePhrase}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            </Card>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        transparent
+        visible={isDeletingAccount}
+        animationType="fade"
+        onRequestClose={() => {
+          // 탈퇴 진행 중에는 닫지 않음
+        }}
+      >
+        <View style={styles.loadingModalRoot}>
+          <Pressable style={styles.loadingBackdropPressable} onPress={() => {}}>
+            <View style={styles.loadingBackdrop} />
+          </Pressable>
+          <View style={styles.loadingCenter} pointerEvents="box-none">
+            <Card style={styles.loadingCard}>
+              <ActivityIndicator color={COLORS.primary} />
+              <Text style={styles.loadingTitle}>탈퇴 처리 중…</Text>
+              <Text style={styles.loadingMessage}>잠시만 기다려주세요.</Text>
+            </Card>
+          </View>
+        </View>
+      </Modal>
+
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+          disabled={isDeletingAccount}
+        >
           <AppIcon name="chevron-left" size={26} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>개인정보 및 보안</Text>
@@ -242,7 +408,12 @@ export default function PrivacySecurityScreen() {
           <Button
             title={Platform.OS === 'android' ? '설정에서 권한 변경' : '설정으로 이동'}
             variant="outline"
-            onPress={() => openAppSettings()}
+            onPress={async () => {
+              await openAppSettings();
+              // settings -> app 복귀 시 AppState/useFocusEffect가 재갱신하지만,
+              // 일부 기기에서 즉시 반영되는 케이스도 있어 한 번 더 호출
+              refreshAndroidPermissions();
+            }}
             icon={<AppIcon name="settings" size={18} color={COLORS.primary} />}
             style={{ width: '100%' }}
           />
@@ -281,7 +452,7 @@ export default function PrivacySecurityScreen() {
           </View>
 
           <Text style={styles.noteText}>
-            현재 앱은 기기에 저장된 프로필/기록(로컬 데이터)을 삭제합니다. 서버 계정 연동이 추가되면 서버 데이터 삭제도 함께 처리하도록 확장됩니다.
+            로그인 상태에서 탈퇴하면 서버(Supabase)에 저장된 계정/기록 등이 함께 삭제됩니다. 로그인하지 않은 경우에는 기기에 저장된 로컬 데이터만 삭제됩니다.
           </Text>
         </Card>
 
@@ -320,6 +491,113 @@ export default function PrivacySecurityScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.backgroundGray },
+  confirmModalRoot: {
+    flex: 1,
+  },
+  confirmBackdropPressable: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  confirmBackdrop: {
+    flex: 1,
+    backgroundColor: COLORS.text,
+    opacity: 0.4,
+  },
+  confirmCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: SPACING.lg,
+  },
+  confirmCard: {
+    padding: SPACING.lg,
+    borderRadius: RADIUS.md,
+  },
+  confirmTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  confirmTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '800',
+    color: COLORS.text,
+  },
+  confirmCloseButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+  },
+  confirmMessage: {
+    marginTop: SPACING.sm,
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    lineHeight: 20,
+  },
+  confirmBullets: {
+    marginTop: SPACING.md,
+    gap: 6,
+  },
+  confirmBullet: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+  },
+  confirmHint: {
+    marginTop: SPACING.md,
+    fontSize: 13,
+    color: COLORS.text,
+    lineHeight: 18,
+  },
+  confirmInput: {
+    marginTop: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: COLORS.text,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: SPACING.lg,
+  },
+  loadingModalRoot: {
+    flex: 1,
+  },
+  loadingBackdropPressable: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  loadingBackdrop: {
+    flex: 1,
+    backgroundColor: COLORS.text,
+    opacity: 0.4,
+  },
+  loadingCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: SPACING.lg,
+  },
+  loadingCard: {
+    paddingVertical: SPACING.lg,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: RADIUS.md,
+    alignItems: 'center',
+    gap: 12,
+  },
+  loadingTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  loadingMessage: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+  },
   header: {
     backgroundColor: COLORS.background,
     paddingHorizontal: SPACING.md,

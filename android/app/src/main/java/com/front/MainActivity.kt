@@ -2,7 +2,7 @@ package com.front
 
 import android.os.Build
 import android.os.Bundle
-import android.view.Window
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -23,7 +23,28 @@ class MainActivity : ReactActivity() {
             window.attributes = attrs
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-              window.setFrameRate(bestMode.refreshRate, Window.FRAME_RATE_COMPATIBILITY_DEFAULT)
+              // Android 11+(API 30) has Window#setFrameRate, but we avoid compile-time dependency
+              // to keep builds working across toolchain/SDK variations.
+              try {
+                val windowClass = window.javaClass
+                val setFrameRate = windowClass.getMethod(
+                  "setFrameRate",
+                  Float::class.javaPrimitiveType,
+                  Int::class.javaPrimitiveType
+                )
+
+                // Window.FRAME_RATE_COMPATIBILITY_DEFAULT (int) via reflection
+                val compatDefault = try {
+                  val field = Class.forName("android.view.Window").getField("FRAME_RATE_COMPATIBILITY_DEFAULT")
+                  field.getInt(null)
+                } catch (_: Throwable) {
+                  0
+                }
+
+                setFrameRate.invoke(window, bestMode.refreshRate, compatDefault)
+              } catch (_: Throwable) {
+                // ignore
+              }
             }
           }
         }
@@ -34,6 +55,7 @@ class MainActivity : ReactActivity() {
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    installSplashScreen()
     super.onCreate(savedInstanceState)
     applyHighRefreshRatePreference()
   }

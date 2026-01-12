@@ -21,6 +21,8 @@ import { analyzeFoodImage } from '../../services/api';
 import { FoodAnalysis } from '../../types/user';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
+import { MONTHLY_SCAN_LIMIT } from '../../config';
+import { getMonthlyScanCountRemote, getSessionUserId } from '../../services/userData';
 
 export default function VerifyScreen() {
   const navigation = useNavigation();
@@ -34,9 +36,32 @@ export default function VerifyScreen() {
   const insets = useSafeAreaInsets();
   const tutorialTop = (insets.top || StatusBar.currentHeight || 0) + 8;
 
-  const TUTORIAL_KEY = useMemo(() => '@nutrimatch_scan_tutorial_seen', []);
-  const TUTORIAL_PHASE_KEY = useMemo(() => '@nutrimatch_scan_tutorial_phase', []);
+  const [tutorialKeys, setTutorialKeys] = useState(() => ({
+    seen: '@nutrimatch_scan_tutorial_seen',
+    phase: '@nutrimatch_scan_tutorial_phase',
+  }));
+  const baseTutorialSeenKey = useMemo(() => '@nutrimatch_scan_tutorial_seen', []);
+  const baseTutorialPhaseKey = useMemo(() => '@nutrimatch_scan_tutorial_phase', []);
   const [showVerifyTutorial, setShowVerifyTutorial] = useState(false);
+
+  const ensureScanQuotaOrAlert = async () => {
+    const userId = await getSessionUserId().catch(() => null);
+    if (!userId) return true;
+
+    try {
+      const used = await getMonthlyScanCountRemote();
+      if (typeof used === 'number' && used >= MONTHLY_SCAN_LIMIT) {
+        alert({
+          title: '스캔 기회 소진',
+          message: `이번 달 스캔 기회를 모두 사용했어요. (${MONTHLY_SCAN_LIMIT}회/월)`,
+        });
+        return false;
+      }
+    } catch {
+      // ignore
+    }
+    return true;
+  };
 
   const analyzeButtonAnchorRef = useRef<View | null>(null);
   const [analyzeButtonRect, setAnalyzeButtonRect] = useState<null | { x: number; y: number; width: number; height: number }>(null);
@@ -55,8 +80,20 @@ export default function VerifyScreen() {
   useEffect(() => {
     let mounted = true;
     (async () => {
+      const userId = await getSessionUserId().catch(() => null);
+      if (mounted && userId) {
+        setTutorialKeys(prev => {
+          const next = {
+            seen: `@nutrimatch_scan_tutorial_seen:${userId}`,
+            phase: `@nutrimatch_scan_tutorial_phase:${userId}`,
+          };
+          if (prev.seen === next.seen && prev.phase === next.phase) return prev;
+          return next;
+        });
+      }
+
       try {
-        const phase = await AsyncStorage.getItem(TUTORIAL_PHASE_KEY);
+        const phase = await AsyncStorage.getItem(tutorialKeys.phase);
         if (mounted) setShowVerifyTutorial(phase === 'verify');
       } catch {
         if (mounted) setShowVerifyTutorial(false);
@@ -65,13 +102,15 @@ export default function VerifyScreen() {
     return () => {
       mounted = false;
     };
-  }, [TUTORIAL_PHASE_KEY]);
+  }, [tutorialKeys.phase]);
 
   const finalizeTutorial = async () => {
     setShowVerifyTutorial(false);
     try {
-      await AsyncStorage.setItem(TUTORIAL_KEY, '1');
-      await AsyncStorage.removeItem(TUTORIAL_PHASE_KEY);
+      await AsyncStorage.setItem(tutorialKeys.seen, '1');
+      await AsyncStorage.removeItem(tutorialKeys.phase);
+      await AsyncStorage.setItem(baseTutorialSeenKey, '1');
+      await AsyncStorage.removeItem(baseTutorialPhaseKey);
     } catch {
       // ignore
     }
@@ -82,6 +121,9 @@ export default function VerifyScreen() {
   };
 
   const handleAnalyze = async () => {
+    const ok = await ensureScanQuotaOrAlert();
+    if (!ok) return;
+
     setIsAnalyzing(true);
     try {
       const response = await analyzeFoodImage(
@@ -141,6 +183,9 @@ export default function VerifyScreen() {
   };
 
   const handleAnalyzeFromTutorial = async () => {
+    const ok = await ensureScanQuotaOrAlert();
+    if (!ok) return;
+
     if (showVerifyTutorial) {
       await finalizeTutorial();
     }

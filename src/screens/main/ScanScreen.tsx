@@ -11,6 +11,8 @@ import { Button } from '../../components/ui/Button';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { Badge } from '../../components/ui/Badge';
 import { useAppAlert } from '../../components/ui/AppAlert';
+import { MONTHLY_SCAN_LIMIT } from '../../config';
+import { getMonthlyScanCountRemote, getSessionUserId } from '../../services/userData';
 
 export default function ScanScreen() {
   const navigation = useNavigation();
@@ -21,15 +23,57 @@ export default function ScanScreen() {
   const scanButtonAnchorRef = useRef<View | null>(null);
   const [scanButtonRect, setScanButtonRect] = useState<null | { x: number; y: number; width: number; height: number }>(null);
 
-  const TUTORIAL_KEY = useMemo(() => '@nutrimatch_scan_tutorial_seen', []);
-  const TUTORIAL_PHASE_KEY = useMemo(() => '@nutrimatch_scan_tutorial_phase', []);
+  const [tutorialKeys, setTutorialKeys] = useState(() => ({
+    seen: '@nutrimatch_scan_tutorial_seen',
+    phase: '@nutrimatch_scan_tutorial_phase',
+  }));
+  const baseTutorialSeenKey = useMemo(() => '@nutrimatch_scan_tutorial_seen', []);
+  const baseTutorialPhaseKey = useMemo(() => '@nutrimatch_scan_tutorial_phase', []);
   const [showTutorial, setShowTutorial] = useState(false);
+
+  const ensureScanQuotaOrAlert = async () => {
+    const userId = await getSessionUserId().catch(() => null);
+    if (!userId) return true; // 로컬 모드 제한 없음
+
+    try {
+      const used = await getMonthlyScanCountRemote();
+      if (typeof used === 'number' && used >= MONTHLY_SCAN_LIMIT) {
+        alert({
+          title: '스캔 기회 소진',
+          message: `이번 달 스캔 기회를 모두 사용했어요. (${MONTHLY_SCAN_LIMIT}회/월)`,
+        });
+        return false;
+      }
+    } catch {
+      // 카운트 조회 실패 시에는 보수적으로 막지 않음
+    }
+    return true;
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const userId = await getSessionUserId().catch(() => null);
+      if (!mounted || !userId) return;
+      setTutorialKeys(prev => {
+        const next = {
+          seen: `@nutrimatch_scan_tutorial_seen:${userId}`,
+          phase: `@nutrimatch_scan_tutorial_phase:${userId}`,
+        };
+        if (prev.seen === next.seen && prev.phase === next.phase) return prev;
+        return next;
+      });
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const seen = await AsyncStorage.getItem(TUTORIAL_KEY);
+        const seen = await AsyncStorage.getItem(tutorialKeys.seen);
         if (mounted) setShowTutorial(seen !== '1');
       } catch {
         if (mounted) setShowTutorial(true);
@@ -38,7 +82,7 @@ export default function ScanScreen() {
     return () => {
       mounted = false;
     };
-  }, [TUTORIAL_KEY]);
+  }, [tutorialKeys.seen]);
 
   const measureScanButton = () => {
     // measureInWindow gives absolute coordinates for overlay alignment
@@ -55,8 +99,11 @@ export default function ScanScreen() {
   const finalizeTutorial = async () => {
     setShowTutorial(false);
     try {
-      await AsyncStorage.setItem(TUTORIAL_KEY, '1');
-      await AsyncStorage.removeItem(TUTORIAL_PHASE_KEY);
+      await AsyncStorage.setItem(tutorialKeys.seen, '1');
+      await AsyncStorage.removeItem(tutorialKeys.phase);
+      // legacy/base 키도 같이 정리
+      await AsyncStorage.setItem(baseTutorialSeenKey, '1');
+      await AsyncStorage.removeItem(baseTutorialPhaseKey);
     } catch {
       // ignore
     }
@@ -66,7 +113,8 @@ export default function ScanScreen() {
     // Hide scan overlay but continue tutorial on Verify screen.
     setShowTutorial(false);
     try {
-      await AsyncStorage.setItem(TUTORIAL_PHASE_KEY, 'verify');
+      await AsyncStorage.setItem(tutorialKeys.phase, 'verify');
+      await AsyncStorage.setItem(baseTutorialPhaseKey, 'verify');
     } catch {
       // ignore
     }
@@ -88,6 +136,9 @@ export default function ScanScreen() {
   };
 
   const handleScan = async () => {
+    const ok = await ensureScanQuotaOrAlert();
+    if (!ok) return;
+
     try {
       const image = await ImagePicker.openCamera({
         mediaType: 'photo',
@@ -116,6 +167,9 @@ export default function ScanScreen() {
   };
 
   const handleGallery = async () => {
+    const ok = await ensureScanQuotaOrAlert();
+    if (!ok) return;
+
     try {
       const image = await ImagePicker.openPicker({
         mediaType: 'photo',

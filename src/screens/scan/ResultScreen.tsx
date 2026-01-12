@@ -7,7 +7,10 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
+import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
+import { getMonthlyScanCountRemote, getSessionUserId, insertFoodLogRemote } from '../../services/userData';
+import { MONTHLY_SCAN_LIMIT } from '../../config';
 
 import { FoodAnalysis, FoodGrade } from '../../types/user';
 
@@ -15,6 +18,8 @@ export default function ResultScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const { imageUri, analysis } = route.params as { imageUri: string, analysis: FoodAnalysis };
+
+  const { alert } = useAppAlert();
 
   const profile = useUserStore(state => state.profile);
   const addFoodLog = useUserStore(state => state.addFoodLog);
@@ -29,18 +34,56 @@ export default function ResultScreen() {
 
   const handleDone = async () => {
     try {
-      await addFoodLog({
-        id: `${Date.now()}`,
-        userId: profile?.id ?? 'local',
-        imageUri,
-        analysis,
-        mealType: getMealTypeFromNow(),
-        timestamp: new Date().toISOString(),
-      });
+      const timestamp = new Date().toISOString();
+      const mealType = getMealTypeFromNow();
+
+      const userId = await getSessionUserId().catch(() => null);
+      if (userId) {
+        try {
+          const used = await getMonthlyScanCountRemote();
+          if (typeof used === 'number' && used >= MONTHLY_SCAN_LIMIT) {
+            alert({
+              title: '스캔 기회 소진',
+              message: `이번 달 스캔 기회를 모두 사용했어요. (${MONTHLY_SCAN_LIMIT}회/월)`,
+            });
+            return;
+          }
+        } catch {
+          // 카운트 조회 실패 시에는 보수적으로 막지 않고 진행
+        }
+        // 서버 우선 저장
+        const saved = await insertFoodLogRemote({
+          userId,
+          imageUri,
+          analysis,
+          mealType,
+          timestamp,
+        });
+        // 로컬 캐시(오프라인 빠른 표시용)
+        await addFoodLog(saved);
+      } else {
+        // 로컬 모드
+        await addFoodLog({
+          id: `${Date.now()}`,
+          userId: profile?.id ?? 'local',
+          imageUri,
+          analysis,
+          mealType,
+          timestamp,
+        });
+      }
+
+      navigation.navigate('MainTab', { screen: 'History' });
     } catch (e) {
       console.error('Failed to save food log', e);
-    } finally {
-      navigation.navigate('MainTab', { screen: 'History' });
+      const message =
+        e instanceof Error ? e.message :
+        typeof e === 'string' ? e :
+        '';
+      alert({
+        title: '저장 실패',
+        message: message || '기록 저장 중 오류가 발생했습니다. 네트워크 상태를 확인하고 다시 시도해주세요.',
+      });
     }
   };
 
@@ -50,7 +93,7 @@ export default function ResultScreen() {
       case 'good': return 'B';
       case 'neutral': return 'C';
       case 'bad': return 'D';
-      case 'very_bad': return 'E';
+      case 'very_bad': return 'F';
       default: return '?';
     }
   };

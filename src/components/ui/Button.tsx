@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle, View, type StyleProp } from 'react-native';
 import { COLORS, RADIUS } from '../../constants/colors';
 
 interface ButtonProps {
-  onPress: () => void;
+  onPress: () => void | Promise<void>;
   children?: React.ReactNode;
   title?: string;
   icon?: React.ReactNode;
@@ -27,8 +27,33 @@ export const Button: React.FC<ButtonProps> = ({
   style,
   textStyle,
 }) => {
+  const pendingRef = useRef(false);
+  const [pending, setPending] = useState(false);
+
+  const handlePress = useCallback(() => {
+    if (disabled || loading || pendingRef.current) return;
+
+    try {
+      const ret = onPress?.();
+      if (ret && typeof (ret as any).then === 'function') {
+        pendingRef.current = true;
+        setPending(true);
+        (ret as Promise<void>).finally(() => {
+          pendingRef.current = false;
+          setPending(false);
+        });
+      }
+    } catch (e) {
+      pendingRef.current = false;
+      setPending(false);
+      throw e;
+    }
+  }, [disabled, loading, onPress]);
+
+  const isDisabled = disabled || loading || pending;
+
   const getBackgroundColor = () => {
-    if (disabled) return '#E5E7EB';
+    if (isDisabled) return '#E5E7EB';
     switch (variant) {
       case 'primary': return COLORS.primary;
       case 'outline': return 'transparent';
@@ -39,7 +64,7 @@ export const Button: React.FC<ButtonProps> = ({
   };
 
   const getBorderColor = () => {
-    if (disabled) return '#E5E7EB';
+    if (isDisabled) return '#E5E7EB';
     switch (variant) {
       case 'outline': return COLORS.border;
       default: return 'transparent';
@@ -47,7 +72,7 @@ export const Button: React.FC<ButtonProps> = ({
   };
 
   const getTextColor = () => {
-    if (disabled) return '#9CA3AF';
+    if (isDisabled) return '#9CA3AF';
     switch (variant) {
       case 'primary': return '#FFFFFF';
       case 'outline': return COLORS.primary;
@@ -71,8 +96,8 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <TouchableOpacity
-      onPress={onPress}
-      disabled={disabled || loading}
+      onPress={handlePress}
+      disabled={isDisabled}
       style={[
         styles.button,
         {
@@ -84,7 +109,7 @@ export const Button: React.FC<ButtonProps> = ({
         style,
       ]}
     >
-      {loading ? (
+      {loading || pending ? (
         <ActivityIndicator color={getTextColor()} />
       ) : (
         <>
@@ -100,17 +125,21 @@ export const Button: React.FC<ButtonProps> = ({
               {title}
             </Text>
           ) : (
-            children && (
-              <Text
-                style={[
-                  styles.text,
-                  { color: getTextColor(), fontSize, lineHeight, textAlignVertical: 'center' },
-                  textStyle,
-                ]}
-              >
-                {children}
-              </Text>
-            )
+            children ? (
+              typeof children === 'string' || typeof children === 'number' ? (
+                <Text
+                  style={[
+                    styles.text,
+                    { color: getTextColor(), fontSize, lineHeight, textAlignVertical: 'center' },
+                    textStyle,
+                  ]}
+                >
+                  {children}
+                </Text>
+              ) : (
+                children
+              )
+            ) : null
           )}
         </>
       )}

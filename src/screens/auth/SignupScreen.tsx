@@ -6,11 +6,11 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Platform } from 'react-native';
 
 import { COLORS } from '../../constants/colors';
 import { Button } from '../../components/ui/Button';
@@ -37,8 +37,6 @@ export default function SignupScreen() {
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [nickname, setNickname] = useState('');
 
-  const [deviceId, setDeviceId] = useState('');
-
   const [showPassword, setShowPassword] = useState(false);
   const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
   const [agreeRequired, setAgreeRequired] = useState(false);
@@ -63,10 +61,9 @@ export default function SignupScreen() {
       pw.ok &&
       pwMatch &&
       nicknameValid &&
-      agreeRequired &&
-      deviceId.length > 0
+      agreeRequired
     );
-  }, [agreeRequired, deviceId.length, nicknameValid, pw.ok, pwMatch, submitting, usernameAvailable, usernameValid]);
+  }, [agreeRequired, nicknameValid, pw.ok, pwMatch, submitting, usernameAvailable, usernameValid]);
 
   useEffect(() => {
     // 아이디 변경 시 중복확인 결과 초기화
@@ -100,43 +97,8 @@ export default function SignupScreen() {
     }
   };
 
-  useEffect(() => {
-    // Android만 사용 (무료 혜택/중복 가입 방지용 식별자)
-    if (Platform.OS !== 'android') return;
-    let mounted = true;
-
-    // 네이티브 모듈이 아직 링크/빌드되지 않은 경우(RNDeviceInfo is null)에도
-    // 레드스크린이 뜨지 않도록 동적 로드 + 예외 처리
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const mod = require('react-native-device-info');
-      const DeviceInfo = mod?.default ?? mod;
-
-      Promise.resolve(DeviceInfo?.getAndroidId?.())
-        .then((id: any) => {
-          if (mounted) setDeviceId(String(id || ''));
-        })
-        .catch(() => {
-          if (mounted) setDeviceId('');
-        });
-    } catch {
-      if (mounted) setDeviceId('');
-    }
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
   const handleSubmit = async () => {
     if (submitting) return;
-    if (Platform.OS === 'android' && !deviceId) {
-      alert({
-        title: '기기 식별자 확인',
-        message:
-          '기기 고유 ID를 가져오지 못했습니다.\n앱을 재설치/재빌드 후 다시 시도해주세요.',
-      });
-      return;
-    }
     if (!usernameValid) {
       alert({ title: '아이디 입력', message: '아이디를 입력해주세요.' });
       return;
@@ -174,7 +136,6 @@ export default function SignupScreen() {
         username: username.trim(),
         nickname: nickname.trim(),
         password,
-        deviceId,
       });
 
       alert({
@@ -380,14 +341,52 @@ export default function SignupScreen() {
             </TouchableOpacity>
           </View>
 
-          <Button title="가입하기" onPress={handleSubmit} disabled={!canSubmit} style={{ width: '100%' }} />
+          <Button
+            title="가입하기"
+            onPress={handleSubmit}
+            disabled={!canSubmit}
+            loading={submitting}
+            style={{ width: '100%' }}
+          />
         </View>
       </ScrollView>
+
+      {submitting ? (
+        <View style={styles.loadingOverlay} pointerEvents="auto">
+          <View style={styles.loadingBackdrop} />
+          <View style={styles.loadingContent}>
+            <ActivityIndicator color={COLORS.primary} />
+            <Text style={styles.loadingText}>회원가입 처리 중…</Text>
+          </View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+    loadingOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    loadingBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: COLORS.background,
+      opacity: 0.85,
+    },
+    loadingContent: {
+      padding: 16,
+      borderRadius: 12,
+      backgroundColor: COLORS.background,
+      alignItems: 'center',
+      gap: 10,
+    },
+    loadingText: {
+      color: COLORS.text,
+      fontSize: 14,
+      fontWeight: '600',
+    },
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
