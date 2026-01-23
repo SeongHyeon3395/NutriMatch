@@ -87,7 +87,7 @@ npx supabase functions deploy signup-device
 Secrets(예: AI API Key)을 쓰는 경우:
 
 ```bash
-npx supabase secrets set GEMINI_API_KEY=YOUR_KEY
+npx supabase secrets set GEMINI_API_KEY="YOUR_KEY"
 ```
 
 ### DB 마이그레이션
