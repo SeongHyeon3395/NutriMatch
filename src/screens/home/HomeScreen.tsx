@@ -12,11 +12,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import ImagePicker from 'react-native-image-crop-picker';
 import { RootStackParamList } from '../../navigation/types';
 import { analyzeFoodImage } from '../../services/api';
 import { useUserStore } from '../../store/userStore';
 import { useAppAlert } from '../../components/ui/AppAlert';
+import { pickPhotoFromCamera, pickPhotoFromLibrary } from '../../services/imagePicker';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -43,22 +43,10 @@ export default function HomeScreen() {
     }
 
     try {
-      const image = await ImagePicker.openCamera({
-        width: 800,
-        height: 800,
-        cropping: true,
-        freeStyleCropEnabled: true,
-        mediaType: 'photo',
-        includeBase64: false,
-      });
-
-      if (image.path) {
-        analyzeImage(image.path);
-      }
+      const picked = await pickPhotoFromCamera({ maxWidth: 1200, maxHeight: 1200, quality: 0.85 });
+      if (picked?.uri) analyzeImage(picked.uri);
     } catch (e: any) {
-      if (e?.code !== 'E_PICKER_CANCELLED') {
-        alert({ title: '카메라 오류', message: e?.message || String(e) });
-      }
+      alert({ title: '카메라 오류', message: e?.message || String(e) });
     }
   };
 
@@ -87,29 +75,34 @@ export default function HomeScreen() {
     }
 
     try {
-      const image = await ImagePicker.openPicker({
-        width: 800,
-        height: 800,
-        cropping: true,
-        freeStyleCropEnabled: true,
-        mediaType: 'photo',
-        includeBase64: false,
-      });
-
-      if (image.path) {
-        analyzeImage(image.path);
-      }
+      const picked = await pickPhotoFromLibrary({ maxWidth: 1200, maxHeight: 1200, quality: 0.85 });
+      if (picked?.uri) analyzeImage(picked.uri);
     } catch (e: any) {
-      if (e?.code !== 'E_PICKER_CANCELLED') {
-        alert({ title: '갤러리 오류', message: e?.message || String(e) });
-      }
+      alert({ title: '갤러리 오류', message: e?.message || String(e) });
     }
   };
 
   const analyzeImage = async (imageUri: string) => {
     setLoading(true);
     try {
-      const response = await analyzeFoodImage(imageUri);
+      const response = await analyzeFoodImage(
+        imageUri,
+        userProfile
+          ? {
+              bodyGoal: userProfile.bodyGoal,
+              healthDiet: userProfile.healthDiet,
+              lifestyleDiet: userProfile.lifestyleDiet,
+              allergens: userProfile.allergens,
+              currentWeight: userProfile.currentWeight,
+              targetWeight: userProfile.targetWeight,
+              height: userProfile.height,
+              age: userProfile.age,
+              gender: userProfile.gender,
+              targetCalories: userProfile.targetCalories,
+              targetProtein: userProfile.targetProtein,
+            }
+          : null
+      );
       
       if (__DEV__) {
         console.log('[HomeScreen] 전체 API 응답:');

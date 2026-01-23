@@ -8,6 +8,7 @@ import { useUserStore } from '../store/userStore';
 import { useAppAlert } from '../components/ui/AppAlert';
 import { promptEssentialPermissionsOnFirstAuth } from '../services/permissions';
 import { SplashOverlay } from '../components/SplashOverlay';
+import { consumeUserInitiatedSignOut } from '../services/authSignals';
 
 // Screens
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -43,13 +44,28 @@ function withTimeout<T>(p: Promise<T>, ms: number) {
   });
 }
 
+function isLikelyRefreshTokenExpiredError(err: any): boolean {
+  const msg = String(err?.message ?? err ?? '').toLowerCase();
+  // Supabase GoTrue/clients can surface various messages depending on platform/version.
+  return (
+    msg.includes('invalid refresh token') ||
+    msg.includes('refresh token not found') ||
+    msg.includes('invalid_grant') ||
+    msg.includes('jwt expired') ||
+    msg.includes('session expired') ||
+    msg.includes('refresh_token') && msg.includes('expired')
+  );
+}
+
 export default function RootNavigator() {
   const setProfile = useUserStore(state => state.setProfile);
+  const clearAllData = useUserStore(state => state.clearAllData);
   const { alert } = useAppAlert();
   const [booting, setBooting] = useState(true);
   const [pendingReset, setPendingReset] = useState<null | { name: keyof RootStackParamList; params?: any }>(null);
   const navigationRef = useMemo(() => createNavigationContainerRef<RootStackParamList>(), []);
   const [navReady, setNavReady] = useState(false);
+  const [sessionExpiredNoticeShown, setSessionExpiredNoticeShown] = useState(false);
 
   const resetTo = (name: keyof RootStackParamList, params?: any) => {
     if (navigationRef.isReady()) {
@@ -61,6 +77,22 @@ export default function RootNavigator() {
 
   useEffect(() => {
     let mounted = true;
+
+    const notifySessionExpiredAndGoLogin = () => {
+      if (!mounted) return;
+      if (sessionExpiredNoticeShown) {
+        resetTo('Login');
+        return;
+      }
+
+      setSessionExpiredNoticeShown(true);
+      resetTo('Login');
+      alert({
+        title: '세션 만료',
+        message: '장시간 로그인 하지 않아 로그아웃되었습니다. 다시 로그인해주세요.',
+      });
+    };
+
     (async () => {
       try {
         if (!isSupabaseConfigured || !supabase) {
@@ -75,10 +107,31 @@ export default function RootNavigator() {
         let session = data.session;
         if (session) {
           try {
-            const refreshed = await withTimeout(supabase.auth.refreshSession(), 1500);
-            if (refreshed?.data?.session) session = refreshed.data.session;
-          } catch {
-            // refresh 실패해도 기존 세션으로 진행
+            const refreshed = await withTimeout(supabase.auth.refreshSession(), 2000);
+            const refreshError = (refreshed as any)?.error;
+            if (refreshError) {
+              if (isLikelyRefreshTokenExpiredError(refreshError)) {
+                try {
+                  await clearAllData();
+                } catch {
+                  // ignore
+                }
+                notifySessionExpiredAndGoLogin();
+                return;
+              }
+            }
+            if ((refreshed as any)?.data?.session) session = (refreshed as any).data.session;
+          } catch (e) {
+            // timeout/네트워크 등은 즉시 로그아웃하지 않음
+            if (isLikelyRefreshTokenExpiredError(e)) {
+              try {
+                await clearAllData();
+              } catch {
+                // ignore
+              }
+              notifySessionExpiredAndGoLogin();
+              return;
+            }
           }
         }
         if (!session) {
@@ -111,9 +164,29 @@ export default function RootNavigator() {
       }
     })();
 
-    const sub = supabase?.auth.onAuthStateChange(async (_event, session) => {
+    const sub = supabase?.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
       if (!session) {
+        // 수동 로그아웃이면 안내 문구 없이 로그인으로
+        const userInitiated = consumeUserInitiatedSignOut();
+        try {
+          await clearAllData();
+        } catch {
+          // ignore
+        }
+
+        if (userInitiated) {
+          resetTo('Login');
+          return;
+        }
+
+        // refresh token 만료/세션 만료로 추정되는 경우 안내 후 로그인으로
+        const ev = String(event);
+        if (ev === 'TOKEN_REFRESH_FAILED' || ev === 'SIGNED_OUT') {
+          notifySessionExpiredAndGoLogin();
+          return;
+        }
+
         resetTo('Login');
         return;
       }
@@ -137,7 +210,7 @@ export default function RootNavigator() {
       mounted = false;
       sub?.data?.subscription?.unsubscribe?.();
     };
-  }, [alert, setProfile]);
+  }, [alert, clearAllData, sessionExpiredNoticeShown, setProfile]);
 
   return (
     <>

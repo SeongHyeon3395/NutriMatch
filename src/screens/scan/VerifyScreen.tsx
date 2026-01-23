@@ -21,6 +21,7 @@ import { analyzeFoodImage } from '../../services/api';
 import { FoodAnalysis } from '../../types/user';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
+import { Card } from '../../components/ui/Card';
 import { MONTHLY_SCAN_LIMIT } from '../../config';
 import { getMonthlyScanCountRemote, getSessionUserId } from '../../services/userData';
 
@@ -199,13 +200,28 @@ export default function VerifyScreen() {
           <AppIcon name="close" size={24} color={COLORS.text} />
         </TouchableOpacity>
       </View>
+
       <View style={styles.content}>
-        <Text style={styles.title}>사진 확인</Text>
-        <Text style={styles.subtitle}>글자/음식이 선명하게 보이면 더 정확해요</Text>
-        
-        <View style={styles.imageContainer}>
-          <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
-        </View>
+        <Card style={styles.heroCard}>
+          <View style={styles.heroRow}>
+            <View style={styles.heroIcon}>
+              <AppIcon name="photo" size={22} color={COLORS.primary} />
+            </View>
+            <View style={styles.heroText}>
+              <Text style={styles.title}>사진 확인</Text>
+              <Text style={styles.subtitle}>글자/음식이 선명하면 정확도가 올라가요</Text>
+            </View>
+          </View>
+        </Card>
+
+        <Card style={styles.previewCard}>
+          <View style={styles.imageContainer}>
+            <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
+          </View>
+          <Text style={styles.previewHint}>
+            이 화면은 미리보기예요. 분석 결과는 사진 기반 추정입니다.
+          </Text>
+        </Card>
 
         <View style={styles.buttonGroup}>
           <Button 
@@ -334,7 +350,7 @@ export default function VerifyScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.backgroundGray,
   },
   header: {
     flexDirection: 'row',
@@ -348,33 +364,58 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 20,
+    justifyContent: 'center',
+    gap: 14,
+  },
+  heroCard: {
+    padding: 16,
+  },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  heroIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.blue50,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  heroText: {
+    flex: 1,
+  },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: COLORS.text,
-    marginBottom: 8,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: COLORS.textSecondary,
-    marginBottom: 32,
+    marginTop: 4,
+  },
+  previewCard: {
+    padding: 14,
   },
   imageContainer: {
     width: '100%',
-    aspectRatio: 1,
-    borderRadius: 24,
+    aspectRatio: 4 / 5,
+    borderRadius: RADIUS.md,
     overflow: 'hidden',
-    marginBottom: 32,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: COLORS.background,
   },
   image: {
     width: '100%',
     height: '100%',
+  },
+  previewHint: {
+    marginTop: 10,
+    fontSize: 12,
+    color: COLORS.textSecondary,
   },
   buttonGroup: {
     width: '100%',

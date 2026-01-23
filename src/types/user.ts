@@ -89,6 +89,12 @@ export interface FoodAnalysis {
   // 신규: 사용자 맞춤 분석
   userAnalysis?: {
     grade: FoodGrade; // 적합도 등급
+    score100?: number; // 0~100 사용자 맞춤 점수 (신규)
+    pros?: string[]; // 장점(사용자 목표/식단 기준)
+    cons?: string[]; // 단점/주의점(사용자 목표/식단 기준)
+    goalFit?: string[]; // 목표(다이어트/벌크업 등) 적합 설명
+    dietFit?: string[]; // 현재 식단(저탄/저염 등) 적합 설명
+    healthImpact?: string[]; // 건강 관점 영향/주의
     reasons: string[]; // 등급 이유 (배열)
     warnings: string[]; // 알레르기/기피 경고
     alternatives: string[]; // 대체 음식 추천

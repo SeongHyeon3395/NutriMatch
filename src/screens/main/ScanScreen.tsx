@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, StatusBar, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import ImagePicker from 'react-native-image-crop-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Defs, Mask, Rect } from 'react-native-svg';
 import { COLORS, SPACING, RADIUS } from '../../constants/colors';
@@ -13,6 +12,7 @@ import { Badge } from '../../components/ui/Badge';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { MONTHLY_SCAN_LIMIT } from '../../config';
 import { getMonthlyScanCountRemote, getSessionUserId } from '../../services/userData';
+import { pickPhotoFromCamera, pickPhotoFromLibrary } from '../../services/imagePicker';
 
 export default function ScanScreen() {
   const navigation = useNavigation();
@@ -140,22 +140,15 @@ export default function ScanScreen() {
     if (!ok) return;
 
     try {
-      const image = await ImagePicker.openCamera({
-        mediaType: 'photo',
-        cropping: true,
-        freeStyleCropEnabled: true,
-      });
-
-      if (image.path) {
+      const picked = await pickPhotoFromCamera({ maxWidth: 1400, maxHeight: 1400, quality: 0.88 });
+      if (picked?.uri) {
         navigation.navigate('Verify', { 
-          imageUri: image.path 
+          imageUri: picked.uri 
         });
       }
     } catch (error: any) {
-      if (error.code !== 'E_PICKER_CANCELLED') {
-        console.error('Camera Error:', error);
-        alert({ title: '오류', message: '카메라를 실행하는 중 문제가 발생했습니다.' });
-      }
+      console.error('Camera Error:', error);
+      alert({ title: '오류', message: error?.message || '카메라를 실행하는 중 문제가 발생했습니다.' });
     }
   };
 
@@ -171,22 +164,15 @@ export default function ScanScreen() {
     if (!ok) return;
 
     try {
-      const image = await ImagePicker.openPicker({
-        mediaType: 'photo',
-        cropping: true,
-        freeStyleCropEnabled: true,
-      });
-
-      if (image.path) {
+      const picked = await pickPhotoFromLibrary({ maxWidth: 1400, maxHeight: 1400, quality: 0.88 });
+      if (picked?.uri) {
         navigation.navigate('Verify', { 
-          imageUri: image.path 
+          imageUri: picked.uri 
         });
       }
     } catch (error: any) {
-      if (error.code !== 'E_PICKER_CANCELLED') {
-        console.error('Gallery Error:', error);
-        alert({ title: '오류', message: '갤러리를 여는 중 문제가 발생했습니다.' });
-      }
+      console.error('Gallery Error:', error);
+      alert({ title: '오류', message: error?.message || '갤러리를 여는 중 문제가 발생했습니다.' });
     }
   };
 

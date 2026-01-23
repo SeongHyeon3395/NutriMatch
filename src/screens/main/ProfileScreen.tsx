@@ -10,8 +10,10 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
 import { supabase } from '../../services/supabaseClient';
-import { getMonthlyAverageGradeLetterRemote, getMonthlyScanCountRemote, getSessionUserId, updateMyProfileAvatarRemote } from '../../services/userData';
+import { getMonthlyAverageDietScoreRemote, getMonthlyScanCountRemote, getSessionUserId, updateMyProfileAvatarRemote } from '../../services/userData';
 import { MONTHLY_SCAN_LIMIT } from '../../config';
+import { pickAvatarFromLibrary } from '../../services/imagePicker';
+import { markUserInitiatedSignOut } from '../../services/authSignals';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
@@ -22,9 +24,10 @@ export default function ProfileScreen() {
   const setProfile = useUserStore(state => state.setProfile);
 
   const [monthlyScanCount, setMonthlyScanCount] = useState<number | null>(null);
-  const [monthlyGradeLetter, setMonthlyGradeLetter] = useState<string | null>(null);
+  const [monthlyDietScore, setMonthlyDietScore] = useState<number | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
+  const [isLoadingAvatar, setIsLoadingAvatar] = useState(false);
 
   const userName = profile?.nickname || profile?.name || '사용자';
   const plan = profile?.plan_id ? String(profile.plan_id) : 'Free';
@@ -39,13 +42,17 @@ export default function ProfileScreen() {
     (async () => {
       if (!avatarPath) {
         if (mounted) setAvatarUrl(null);
+        if (mounted) setIsLoadingAvatar(false);
         return;
       }
       try {
         if (!supabase) {
           if (mounted) setAvatarUrl(null);
+          if (mounted) setIsLoadingAvatar(false);
           return;
         }
+
+        if (mounted) setIsLoadingAvatar(true);
         const { data, error } = await supabase.storage.from('profile-avatars').createSignedUrl(avatarPath, 60 * 60 * 24 * 7);
         if (!mounted) return;
         if (error) {
@@ -55,6 +62,8 @@ export default function ProfileScreen() {
         setAvatarUrl(data.signedUrl);
       } catch {
         if (mounted) setAvatarUrl(null);
+      } finally {
+        if (mounted) setIsLoadingAvatar(false);
       }
     })();
     return () => {
@@ -70,25 +79,17 @@ export default function ProfileScreen() {
     if (isUpdatingAvatar) return;
 
     try {
-      const ImagePicker = require('react-native-image-crop-picker');
-      const picked = await ImagePicker.openPicker({
-        mediaType: 'photo',
-        cropping: true,
-        cropperCircleOverlay: true,
-        compressImageQuality: 0.9,
-        includeBase64: true,
-      });
-
-      const localUri = String(picked?.path ?? '').trim();
+      const picked = await pickAvatarFromLibrary();
+      const localUri = String(picked?.uri ?? '').trim();
       if (!localUri) return;
 
-      const base64 = typeof picked?.data === 'string' ? picked.data : null;
+      const base64 = typeof picked?.base64 === 'string' ? picked.base64 : null;
 
       setIsUpdatingAvatar(true);
       const result = await updateMyProfileAvatarRemote({
         localUri,
         base64,
-        mime: picked?.mime ?? null,
+        mime: picked?.type ?? null,
         previousAvatarPath: profile.avatarPath ?? null,
       });
 
@@ -111,19 +112,19 @@ export default function ProfileScreen() {
         const userId = await getSessionUserId().catch(() => null);
         if (!userId) {
           if (mounted) setMonthlyScanCount(null);
-          if (mounted) setMonthlyGradeLetter(null);
+          if (mounted) setMonthlyDietScore(null);
           return;
         }
-        const [n, gradeLetter] = await Promise.all([
+        const [n, dietScore] = await Promise.all([
           getMonthlyScanCountRemote().catch(() => null),
-          getMonthlyAverageGradeLetterRemote().catch(() => null),
+          getMonthlyAverageDietScoreRemote().catch(() => null),
         ]);
         if (!mounted) return;
         setMonthlyScanCount(typeof n === 'number' ? n : 0);
-        setMonthlyGradeLetter(typeof gradeLetter === 'string' ? gradeLetter : null);
+        setMonthlyDietScore(typeof dietScore === 'number' ? dietScore : null);
       } catch {
         if (mounted) setMonthlyScanCount(null);
-        if (mounted) setMonthlyGradeLetter(null);
+        if (mounted) setMonthlyDietScore(null);
       }
     })();
     return () => {
@@ -150,6 +151,7 @@ export default function ProfileScreen() {
           variant: 'danger',
           onPress: async () => {
             try {
+              markUserInitiatedSignOut();
               await supabase?.auth.signOut();
             } catch {
               // ignore
@@ -184,8 +186,8 @@ export default function ProfileScreen() {
             >
               {avatarUrl ? (
                 <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-              ) : isUpdatingAvatar ? (
-                <ActivityIndicator color={COLORS.text} />
+              ) : isUpdatingAvatar || isLoadingAvatar ? (
+                <ActivityIndicator color={COLORS.primary} />
               ) : (
                 <AppIcon name="add" size={30} color={COLORS.text} />
               )}
@@ -210,9 +212,9 @@ export default function ProfileScreen() {
           </Card>
           <Card style={styles.statCard}>
             <Text style={styles.statValue}>
-              {monthlyGradeLetter || '-'}
+              {typeof monthlyDietScore === 'number' ? `${monthlyDietScore}점` : '-'}
             </Text>
-            <Text style={styles.statLabel}>이번 달 등급</Text>
+            <Text style={styles.statLabel}>이번 달 식단 점수</Text>
           </Card>
         </View>
 

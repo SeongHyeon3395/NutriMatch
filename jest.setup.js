@@ -9,3 +9,8 @@ jest.mock('react-native-image-crop-picker', () => ({
   openCamera: jest.fn(() => Promise.reject(new Error('ImagePicker mocked'))),
   openPicker: jest.fn(() => Promise.reject(new Error('ImagePicker mocked'))),
 }));
+
+jest.mock('react-native-image-picker', () => ({
+  launchCamera: jest.fn(() => Promise.resolve({ didCancel: true })),
+  launchImageLibrary: jest.fn(() => Promise.resolve({ didCancel: true })),
+}));

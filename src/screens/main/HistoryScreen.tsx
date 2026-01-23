@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/colors';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { Card } from '../../components/ui/Card';
+import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
-import { FoodGrade } from '../../types/user';
-import { getSessionUserId, listFoodLogsRemote } from '../../services/userData';
+import { getFoodScore100, score100ToBadgeVariant } from '../../services/foodScore';
+import { deleteFoodLogsRemote, getSessionUserId, listFoodLogsRemote } from '../../services/userData';
 
 // Mock Data
 const MOCK_HISTORY = [
@@ -18,7 +19,7 @@ const MOCK_HISTORY = [
     title: '닭가슴살 샐러드',
     date: '오늘, 오후 12:30',
     calories: 450,
-    grade: 'A',
+    score100: 88,
   },
   {
     id: '2',
@@ -26,7 +27,7 @@ const MOCK_HISTORY = [
     title: '귀리 우유',
     date: '어제, 오전 09:15',
     calories: 120,
-    grade: 'B',
+    score100: 74,
   },
   {
     id: '3',
@@ -34,7 +35,7 @@ const MOCK_HISTORY = [
     title: '까르보나라 파스타',
     date: '어제, 오후 07:45',
     calories: 850,
-    grade: 'D',
+    score100: 38,
   },
   {
     id: '4',
@@ -42,7 +43,7 @@ const MOCK_HISTORY = [
     title: '프로틴 바',
     date: '10월 24일, 오후 03:30',
     calories: 210,
-    grade: 'A',
+    score100: 82,
   },
   {
     id: '5',
@@ -50,14 +51,17 @@ const MOCK_HISTORY = [
     title: '아보카도 토스트',
     date: '10월 24일, 오전 08:00',
     calories: 320,
-    grade: 'A',
+    score100: 85,
   },
 ];
 
 export default function HistoryScreen() {
   const navigation = useNavigation<any>();
+  const { alert } = useAppAlert();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('전체'); // All, Meals, Products
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
   const profile = useUserStore(state => state.profile);
   const foodLogs = useUserStore(state => state.foodLogs);
@@ -94,16 +98,9 @@ export default function HistoryScreen() {
     };
   }, [loadFoodLogs, setFoodLogs]);
 
-  const gradeToLetter = (grade?: FoodGrade) => {
-    switch (grade) {
-      case 'very_good': return 'A';
-      case 'good': return 'B';
-      case 'neutral': return 'C';
-      case 'bad': return 'D';
-      case 'very_bad': return 'F';
-      default: return 'C';
-    }
-  };
+  useEffect(() => {
+    if (!isEditMode) setSelectedIds({});
+  }, [isEditMode]);
 
   const historyData = useMemo(() => {
     const realItems = (foodLogs || [])
@@ -111,7 +108,7 @@ export default function HistoryScreen() {
       .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
       .map(log => {
         const calories = log.analysis?.macros?.calories;
-        const gradeLetter = gradeToLetter(log.analysis?.userAnalysis?.grade);
+        const score100 = getFoodScore100(log.analysis);
         const displayDate = (() => {
           try {
             return new Date(log.timestamp).toLocaleString('ko-KR');
@@ -126,7 +123,7 @@ export default function HistoryScreen() {
           title: log.analysis?.dishName ?? '기록',
           date: displayDate,
           calories: typeof calories === 'number' ? calories : 0,
-          grade: gradeLetter,
+          score100,
           __kind: 'real' as const,
           imageUri: log.imageUri,
           analysis: log.analysis,
@@ -152,39 +149,93 @@ export default function HistoryScreen() {
     return filtered;
   }, [activeFilter, foodLogs, isMaster, searchQuery]);
 
-  const getGradeLabel = (grade: string) => {
-    switch (grade) {
-      case 'A':
-        return '매우좋음';
-      case 'B':
-        return '좋음';
-      case 'C':
-        return '보통';
-      case 'D':
-        return '나쁨';
-      case 'F':
-        return '매우나쁨';
-      default:
-        return grade;
-    }
+  const selectedCount = useMemo(() => Object.values(selectedIds).filter(Boolean).length, [selectedIds]);
+
+  const allSelectableIds = useMemo(() => {
+    return (historyData as any[])
+      .filter((x) => x?.__kind === 'real')
+      .map((x) => String(x.id));
+  }, [historyData]);
+
+  const isAllSelected = useMemo(() => {
+    if (allSelectableIds.length === 0) return false;
+    return allSelectableIds.every((id) => Boolean(selectedIds[id]));
+  }, [allSelectableIds, selectedIds]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const getGradeVariant = (grade: string) => {
-    switch (grade) {
-      case 'A':
-      case 'B':
-        return 'success' as const;
-      case 'C':
-        return 'warning' as const;
-      case 'D':
-      case 'F':
-        return 'danger' as const;
-      default:
-        return 'default' as const;
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next: Record<string, boolean> = { ...prev };
+      const nextValue = !isAllSelected;
+      for (const id of allSelectableIds) next[id] = nextValue;
+      return next;
+    });
+  };
+
+  const handleDeleteSelected = () => {
+    const ids = Object.entries(selectedIds)
+      .filter(([, v]) => Boolean(v))
+      .map(([k]) => k);
+
+    if (ids.length === 0) {
+      alert({ title: '삭제할 기록이 없어요', message: '먼저 삭제할 기록을 선택해주세요.' });
+      return;
     }
+
+    alert({
+      title: '기록 삭제',
+      message: `선택한 ${ids.length}개 기록을 삭제할까요?\n삭제하면 복구할 수 없어요.`,
+      actions: [
+        { text: '취소', variant: 'outline' },
+        {
+          text: '삭제',
+          variant: 'danger',
+          onPress: async () => {
+            try {
+              const userId = await getSessionUserId().catch(() => null);
+
+              if (userId) {
+                await deleteFoodLogsRemote(ids);
+                const remote = await listFoodLogsRemote(100).catch(() => null);
+                if (remote && typeof setFoodLogs === 'function') await setFoodLogs(remote);
+              } else {
+                const next = (foodLogs || []).filter((l) => !ids.includes(String(l.id)));
+                if (typeof setFoodLogs === 'function') await setFoodLogs(next);
+              }
+
+              setIsEditMode(false);
+              alert({ title: '삭제 완료', message: '선택한 기록을 삭제했어요.' });
+            } catch (e: any) {
+              const msg = (() => {
+                const m = String(e?.message || '').trim();
+                const code = String(e?.code || '').trim();
+                const details = String(e?.details || '').trim();
+                const hint = String(e?.hint || '').trim();
+                const parts = [
+                  m || '기록 삭제 중 문제가 발생했습니다.',
+                  code ? `code: ${code}` : '',
+                  details ? `details: ${details}` : '',
+                  hint ? `hint: ${hint}` : '',
+                ].filter(Boolean);
+                return parts.join('\n');
+              })();
+              alert({ title: '삭제 실패', message: msg });
+            }
+          },
+        },
+      ],
+    });
   };
 
   const handlePressItem = (item: any) => {
+    if (isEditMode && item?.__kind === 'real') {
+      toggleSelect(String(item.id));
+      return;
+    }
+
     if (item?.__kind === 'real' && item?.imageUri && item?.analysis) {
       navigation.navigate('Result', { imageUri: item.imageUri, analysis: item.analysis });
       return;
@@ -194,17 +245,34 @@ export default function HistoryScreen() {
       title: item.title,
       date: item.date,
       calories: item.calories,
-      grade: item.grade,
+      grade: item.grade ?? '-',
     });
   };
 
   const renderItem = ({ item }: { item: any }) => (
     <TouchableOpacity style={styles.itemCard} onPress={() => handlePressItem(item)}>
-      <View style={styles.itemIconContainer}>
-        {item.type === 'meal' ? (
-          <AppIcon name="restaurant" size={20} color={COLORS.primary} />
+      <View style={styles.itemLeft}>
+        {isEditMode && item?.__kind === 'real' ? (
+          <TouchableOpacity
+            onPress={() => toggleSelect(String(item.id))}
+            style={styles.checkbox}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: Boolean(selectedIds[String(item.id)]) }}
+          >
+            <AppIcon
+              name={selectedIds[String(item.id)] ? 'check-box' : 'check-box-outline-blank'}
+              size={22}
+              color={selectedIds[String(item.id)] ? COLORS.primary : COLORS.textSecondary}
+            />
+          </TouchableOpacity>
+        ) : null}
+
+        {typeof item?.imageUri === 'string' && item.imageUri.trim() ? (
+          <Image source={{ uri: item.imageUri }} style={styles.thumb} />
         ) : (
-          <AppIcon name="qr-code-scanner" size={20} color={COLORS.secondary} />
+          <View style={[styles.thumb, styles.thumbFallback]}>
+            <AppIcon name={item.type === 'meal' ? 'restaurant' : 'qr-code-scanner'} size={18} color={COLORS.textSecondary} />
+          </View>
         )}
       </View>
       
@@ -220,8 +288,8 @@ export default function HistoryScreen() {
 
       <View style={styles.itemRight}>
         <Badge 
-          variant={getGradeVariant(item.grade)}
-          text={getGradeLabel(item.grade)}
+          variant={score100ToBadgeVariant(item.score100)}
+          text={typeof item.score100 === 'number' ? `${item.score100}점` : '-'}
           numberOfLines={1}
           ellipsizeMode="tail"
           style={{ alignSelf: 'center', maxWidth: 72 }}
@@ -234,6 +302,17 @@ export default function HistoryScreen() {
     </TouchableOpacity>
   );
 
+  const handleEditPress = () => {
+    if (allSelectableIds.length === 0) {
+      alert({
+        title: '편집할 내용이 없어요',
+        message: '먼저 음식을 스캔해서 기록을 남겨주세요.\n기록이 있어야 편집할 수 있어요.',
+      });
+      return;
+    }
+    setIsEditMode(true);
+  };
+
   const renderEmpty = () => (
     <Card style={styles.emptyCard}>
       <Text style={styles.emptyTitle}>아직 기록이 없어요</Text>
@@ -244,7 +323,26 @@ export default function HistoryScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>기록</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>기록</Text>
+          {!isEditMode ? (
+            <TouchableOpacity onPress={handleEditPress} style={styles.headerAction}>
+              <Text style={styles.headerActionText}>편집</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerEditActions}>
+              <TouchableOpacity onPress={toggleSelectAll} style={styles.headerAction}>
+                <Text style={styles.headerActionText}>{isAllSelected ? '선택 해제' : '모두 선택'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleDeleteSelected} style={styles.headerAction}>
+                <Text style={styles.headerDeleteText}>삭제({selectedCount})</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setIsEditMode(false)} style={styles.headerAction}>
+                <Text style={styles.headerDoneText}>완료</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
         
         {/* Search Bar */}
         <View style={styles.searchContainer}>
@@ -312,11 +410,36 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
     color: COLORS.text,
-    marginBottom: 12,
+  },
+  headerEditActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerAction: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  headerActionText: {
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
+  headerDeleteText: {
+    color: COLORS.danger,
+    fontWeight: '800',
+  },
+  headerDoneText: {
+    color: COLORS.textSecondary,
+    fontWeight: '700',
   },
   searchContainer: {
     flexDirection: 'row',
@@ -389,14 +512,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  itemIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: COLORS.background,
-    justifyContent: 'center',
+  itemLeft: {
+    flexDirection: 'row',
     alignItems: 'center',
     marginRight: 12,
+  },
+  checkbox: {
+    marginRight: 8,
+    padding: 2,
+  },
+  thumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: COLORS.background,
+  },
+  thumbFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   itemContent: {
     flex: 1,

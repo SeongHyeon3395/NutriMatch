@@ -2,7 +2,6 @@ import React, { useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import ImagePicker from 'react-native-image-crop-picker';
 import { COLORS } from '../../constants/colors';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
@@ -11,7 +10,9 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
 import { FoodGrade } from '../../types/user';
+import { getFoodScore100, score100ToBadgeVariant } from '../../services/foodScore';
 import { getSessionUserId, listFoodLogsRemote } from '../../services/userData';
+import { pickPhotoFromCamera, pickPhotoFromLibrary } from '../../services/imagePicker';
 
 export default function MealScreen() {
   const navigation = useNavigation<any>();
@@ -87,8 +88,8 @@ export default function MealScreen() {
   const recentMeals = useMemo(() => {
     if (isMaster) {
       return [
-        { id: 'recent-1', title: '닭가슴살 샐러드', date: '오늘, 오후 12:30', calories: 450, grade: 'A' as const },
-        { id: 'recent-2', title: '아보카도 토스트', date: '오늘, 오전 08:10', calories: 320, grade: 'A' as const },
+        { id: 'recent-1', title: '닭가슴살 샐러드', date: '오늘, 오후 12:30', calories: 450, grade: 'A' as const, score100: 88 },
+        { id: 'recent-2', title: '아보카도 토스트', date: '오늘, 오전 08:10', calories: 320, grade: 'A' as const, score100: 85 },
       ];
     }
 
@@ -99,6 +100,7 @@ export default function MealScreen() {
       .map(log => {
         const calories = log.analysis?.macros?.calories;
         const gradeLetter = gradeToLetter(log.analysis?.userAnalysis?.grade);
+        const score100 = getFoodScore100(log.analysis);
         const displayDate = (() => {
           try {
             return new Date(log.timestamp).toLocaleString('ko-KR');
@@ -113,6 +115,7 @@ export default function MealScreen() {
           date: displayDate,
           calories: typeof calories === 'number' ? calories : 0,
           grade: gradeLetter as 'A' | 'B' | 'C' | 'D' | 'F',
+          score100,
           __kind: 'real' as const,
           imageUri: log.imageUri,
           analysis: log.analysis,
@@ -136,43 +139,29 @@ export default function MealScreen() {
 
   const handleCamera = async () => {
     try {
-      const image = await ImagePicker.openCamera({
-        mediaType: 'photo',
-        cropping: true,
-        freeStyleCropEnabled: true,
-      });
-
-      if (image.path) {
+      const picked = await pickPhotoFromCamera({ maxWidth: 1400, maxHeight: 1400, quality: 0.88 });
+      if (picked?.uri) {
         navigation.navigate('Verify', { 
-          imageUri: image.path 
+          imageUri: picked.uri 
         });
       }
     } catch (error: any) {
-      if (error.code !== 'E_PICKER_CANCELLED') {
-        console.error('Camera Error:', error);
-        alert({ title: '오류', message: '카메라를 실행하는 중 문제가 발생했습니다.' });
-      }
+      console.error('Camera Error:', error);
+      alert({ title: '오류', message: error?.message || '카메라를 실행하는 중 문제가 발생했습니다.' });
     }
   };
 
   const handleGallery = async () => {
     try {
-      const image = await ImagePicker.openPicker({
-        mediaType: 'photo',
-        cropping: true,
-        freeStyleCropEnabled: true,
-      });
-
-      if (image.path) {
+      const picked = await pickPhotoFromLibrary({ maxWidth: 1400, maxHeight: 1400, quality: 0.88 });
+      if (picked?.uri) {
         navigation.navigate('Verify', { 
-          imageUri: image.path 
+          imageUri: picked.uri 
         });
       }
     } catch (error: any) {
-      if (error.code !== 'E_PICKER_CANCELLED') {
-        console.error('Gallery Error:', error);
-        alert({ title: '오류', message: '갤러리를 여는 중 문제가 발생했습니다.' });
-      }
+      console.error('Gallery Error:', error);
+      alert({ title: '오류', message: error?.message || '갤러리를 여는 중 문제가 발생했습니다.' });
     }
   };
 
@@ -245,7 +234,10 @@ export default function MealScreen() {
                     <Text style={styles.calories}>{item.calories} kcal</Text>
                   </View>
                 </View>
-                <Badge variant={letterToVariant(item.grade)} text={item.grade} />
+                <Badge
+                  variant={score100ToBadgeVariant(item.score100)}
+                  text={typeof item.score100 === 'number' ? `${item.score100}점` : item.grade}
+                />
                 <View style={{ marginLeft: 8, alignItems: 'flex-end' }}>
                   <Text style={styles.detailHint}>자세히 보기</Text>
                   <AppIcon name="chevron-right" size={22} color={COLORS.textSecondary} />

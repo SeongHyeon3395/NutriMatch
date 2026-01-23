@@ -118,6 +118,64 @@ function mapFoodLogRow(row: FoodLogRow): FoodLog {
   };
 }
 
+export async function deleteFoodLogsRemote(ids: string[]) {
+  const userId = await getSessionUserId().catch(() => null);
+  if (!userId) throw new Error('로그인이 필요합니다.');
+
+  const uniqueIds = Array.from(new Set(ids.filter((x) => typeof x === 'string' && x.trim())));
+  if (uniqueIds.length === 0) return { deletedCount: 0 };
+
+  const client = requireSupabase();
+
+  // 1) 이미지 경로 수집 (Storage 정리용)
+  let imagePaths: string[] = [];
+  try {
+    const { data: rows, error: selectError } = await client
+      .from('food_logs')
+      .select('id, image_path')
+      .eq('user_id', userId)
+      .in('id', uniqueIds)
+      .limit(1000);
+
+    if (selectError) {
+      const code = String((selectError as any)?.code || '');
+      const msg = String((selectError as any)?.message || '');
+      // Remote schema가 image_path 컬럼이 없을 수 있음: 이 경우 Storage 정리는 건너뛰고 DB 삭제만 진행
+      const isMissingColumn = code === '42703' || /image_path/i.test(msg);
+      if (!isMissingColumn) throw selectError;
+    } else {
+      imagePaths = (rows as Array<{ image_path?: string | null }> | null)
+        ?.map((r) => r?.image_path)
+        .filter((p): p is string => typeof p === 'string' && p.trim().length > 0) ?? [];
+    }
+  } catch (e: any) {
+    const code = String(e?.code || '');
+    const msg = String(e?.message || '');
+    const isMissingColumn = code === '42703' || /image_path/i.test(msg);
+    if (!isMissingColumn) throw e;
+  }
+
+  // 2) DB 행 삭제
+  const { error: deleteError } = await client
+    .from('food_logs')
+    .delete()
+    .eq('user_id', userId)
+    .in('id', uniqueIds);
+
+  if (deleteError) throw deleteError;
+
+  // 3) Storage 이미지 삭제 (실패해도 DB 삭제는 이미 반영되므로 치명 에러로 만들진 않음)
+  if (imagePaths.length > 0) {
+    try {
+      await client.storage.from(FOOD_IMAGES_BUCKET).remove(imagePaths);
+    } catch {
+      // ignore
+    }
+  }
+
+  return { deletedCount: uniqueIds.length };
+}
+
 const FOOD_IMAGES_BUCKET = 'food-images';
 const PROFILE_AVATARS_BUCKET = 'profile-avatars';
 
@@ -542,6 +600,28 @@ export async function listFoodLogsRemote(limit = 50) {
 
 type MonthlyGradeLetter = 'A' | 'B' | 'C' | 'D' | 'F';
 
+function clampScore100(score: number): number {
+  if (!Number.isFinite(score)) return 0;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function foodGradeToScore100(grade: FoodGrade): number {
+  switch (grade) {
+    case 'very_good':
+      return 90;
+    case 'good':
+      return 75;
+    case 'neutral':
+      return 60;
+    case 'bad':
+      return 40;
+    case 'very_bad':
+      return 20;
+    default:
+      return 60;
+  }
+}
+
 function foodGradeToScore(grade: FoodGrade): number {
   switch (grade) {
     case 'very_good':
@@ -611,6 +691,51 @@ export async function getMonthlyAverageGradeLetterRemote(pMonth?: Date) {
   return scoreToMonthlyLetter(avg);
 }
 
+/**
+ * 이번 달 food_logs의 userAnalysis.score100(0~100)을 평균 계산합니다.
+ * 과거 기록에 score100이 없으면 grade(very_good~very_bad)로 근사치를 사용합니다.
+ * 스캔 기록이 없으면 null을 반환합니다.
+ */
+export async function getMonthlyAverageDietScoreRemote(pMonth?: Date) {
+  const userId = await getSessionUserId().catch(() => null);
+  if (!userId) return null;
+
+  const base = pMonth instanceof Date ? pMonth : new Date();
+  const start = new Date(base.getFullYear(), base.getMonth(), 1, 0, 0, 0, 0);
+  const end = new Date(base.getFullYear(), base.getMonth() + 1, 1, 0, 0, 0, 0);
+
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('food_logs')
+    .select('analysis, occurred_at')
+    .eq('user_id', userId)
+    .gte('occurred_at', start.toISOString())
+    .lt('occurred_at', end.toISOString())
+    .order('occurred_at', { ascending: false })
+    .limit(500);
+
+  if (error) throw error;
+  const rows = (data as Array<{ analysis: any }> | null) ?? [];
+  if (rows.length === 0) return null;
+
+  const scores = rows
+    .map(r => {
+      const ua: any = r?.analysis?.userAnalysis;
+      if (!ua) return null;
+      const raw = ua?.score100;
+      const numeric = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+      if (Number.isFinite(numeric)) return clampScore100(numeric);
+      const grade = ua?.grade as FoodGrade | undefined;
+      if (typeof grade === 'string') return foodGradeToScore100(grade);
+      return null;
+    })
+    .filter((n): n is number => typeof n === 'number' && Number.isFinite(n));
+
+  if (scores.length === 0) return null;
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+  return clampScore100(avg);
+}
+
 export async function insertBodyLogRemote(log: Omit<BodyLog, 'id'>) {
   const userId = await getSessionUserId();
   if (!userId) throw new Error('로그인이 필요합니다.');
@@ -677,7 +802,7 @@ export async function upsertMyNotificationSettingsRemote(settings: Partial<Notif
 
 export async function getMonthlyScanCountRemote(pMonth?: string) {
   const client = requireSupabase();
-  const { data, error } = await client.rpc('get_monthly_scan_count', pMonth ? { p_month: pMonth } : {});
+  const { data, error } = await client.rpc('get_monthly_scan_count_consumed', pMonth ? { p_month: pMonth } : {});
   if (error) throw error;
   return (data ?? 0) as number;
 }
