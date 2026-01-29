@@ -125,7 +125,7 @@ export default function MealScreen() {
 
   const handlePressItem = (item: any) => {
     if (item?.__kind === 'real' && item?.imageUri && item?.analysis) {
-      navigation.navigate('Result', { imageUri: item.imageUri, analysis: item.analysis });
+      navigation.navigate('Result', { imageUri: item.imageUri, analysis: item.analysis, readOnly: true });
       return;
     }
 
@@ -139,12 +139,9 @@ export default function MealScreen() {
 
   const handleCamera = async () => {
     try {
-      const picked = await pickPhotoFromCamera({ maxWidth: 1400, maxHeight: 1400, quality: 0.88 });
-      if (picked?.uri) {
-        navigation.navigate('Verify', { 
-          imageUri: picked.uri 
-        });
-      }
+      const nav: any = navigation as any;
+      const rootNav = nav?.getParent?.() ?? nav;
+      rootNav.navigate('Camera');
     } catch (error: any) {
       console.error('Camera Error:', error);
       alert({ title: '오류', message: error?.message || '카메라를 실행하는 중 문제가 발생했습니다.' });
@@ -153,11 +150,11 @@ export default function MealScreen() {
 
   const handleGallery = async () => {
     try {
-      const picked = await pickPhotoFromLibrary({ maxWidth: 1400, maxHeight: 1400, quality: 0.88 });
+        const picked = await pickPhotoFromLibrary({ quality: 0.84 });
       if (picked?.uri) {
-        navigation.navigate('Verify', { 
-          imageUri: picked.uri 
-        });
+        const nav: any = navigation as any;
+        const rootNav = nav?.getParent?.() ?? nav;
+        rootNav.navigate('Edit', { imageUri: picked.uri });
       }
     } catch (error: any) {
       console.error('Gallery Error:', error);

@@ -237,7 +237,7 @@ export default function HistoryScreen() {
     }
 
     if (item?.__kind === 'real' && item?.imageUri && item?.analysis) {
-      navigation.navigate('Result', { imageUri: item.imageUri, analysis: item.analysis });
+      navigation.navigate('Result', { imageUri: item.imageUri, analysis: item.analysis, readOnly: true });
       return;
     }
 

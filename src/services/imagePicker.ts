@@ -7,6 +7,27 @@ type PickedImage = {
   base64?: string;
 };
 
+function tryGetCropPicker(): any | null {
+  try {
+    return require('react-native-image-crop-picker')?.default ?? require('react-native-image-crop-picker');
+  } catch {
+    return null;
+  }
+}
+
+function toFileUri(uriOrPath: string) {
+  if (!uriOrPath) return '';
+  if (uriOrPath.startsWith('file://')) return uriOrPath;
+  if (uriOrPath.startsWith('content://')) return uriOrPath;
+  return `file://${uriOrPath}`;
+}
+
+function getFilenameFromPath(pathOrUri: string) {
+  const raw = pathOrUri.split('?')[0];
+  const parts = raw.split('/');
+  return parts[parts.length - 1] || `photo_${Date.now()}.jpg`;
+}
+
 function pickFirstAsset(result: any): PickedImage | null {
   if (!result) return null;
   if (result.didCancel) return null;
@@ -33,9 +54,9 @@ export async function pickPhotoFromCamera(params?: {
   const result = await launchCamera({
     mediaType: 'photo',
     saveToPhotos: false,
-    maxWidth: params?.maxWidth ?? 1200,
-    maxHeight: params?.maxHeight ?? 1200,
-    quality: (params?.quality ?? 0.85) as any,
+    ...(typeof params?.maxWidth === 'number' ? { maxWidth: params.maxWidth } : null),
+    ...(typeof params?.maxHeight === 'number' ? { maxHeight: params.maxHeight } : null),
+    quality: (params?.quality ?? 0.84) as any,
     includeBase64: false,
   });
   return pickFirstAsset(result);
@@ -46,12 +67,37 @@ export async function pickPhotoFromLibrary(params?: {
   maxHeight?: number;
   quality?: number;
 }): Promise<PickedImage | null> {
+  // Prefer CropPicker on Android: it returns a real file path (cropper needs it).
+  const CropPicker = tryGetCropPicker();
+  if (CropPicker?.openPicker) {
+    try {
+      const picked = await CropPicker.openPicker({
+        mediaType: 'photo',
+        cropping: false,
+        includeBase64: false,
+        // Keep original resolution; apply max(1024) later at upload/analyze time.
+      } as any);
+
+      const path = typeof picked?.path === 'string' ? picked.path : '';
+      if (!path) return null;
+      return {
+        uri: toFileUri(path),
+        fileName: getFilenameFromPath(path),
+        type: typeof picked?.mime === 'string' ? picked.mime : 'image/jpeg',
+      };
+    } catch (e: any) {
+      const msg = String(e?.message ?? e ?? '');
+      if (msg.toLowerCase().includes('cancel')) return null;
+      // Fallback to ImagePicker below
+    }
+  }
+
   const result = await launchImageLibrary({
     mediaType: 'photo',
     selectionLimit: 1,
-    maxWidth: params?.maxWidth ?? 1200,
-    maxHeight: params?.maxHeight ?? 1200,
-    quality: (params?.quality ?? 0.85) as any,
+    ...(typeof params?.maxWidth === 'number' ? { maxWidth: params.maxWidth } : null),
+    ...(typeof params?.maxHeight === 'number' ? { maxHeight: params.maxHeight } : null),
+    quality: (params?.quality ?? 0.84) as any,
     includeBase64: false,
   });
   return pickFirstAsset(result);

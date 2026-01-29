@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Modal } from 'react-native';
+import { BackHandler, View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Modal, LayoutChangeEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { COLORS } from '../../constants/colors';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
@@ -12,15 +12,21 @@ import { useUserStore } from '../../store/userStore';
 import { getMonthlyScanCountRemote, getSessionUserId, insertFoodLogRemote } from '../../services/userData';
 import { MONTHLY_SCAN_LIMIT } from '../../config';
 import { getFoodScore100 } from '../../services/foodScore';
+import { ensureUserAnalysis } from '../../services/userAnalysis';
+import { computeAllergenHits } from '../../services/allergen';
 
-import { FoodAnalysis } from '../../types/user';
+import { FoodAnalysis, GRADE_COLORS } from '../../types/user';
 
 export default function ResultScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { imageUri, analysis } = route.params as { imageUri: string, analysis: FoodAnalysis };
+  const { imageUri, analysis, readOnly } = route.params as { imageUri: string; analysis: FoodAnalysis; readOnly?: boolean };
+  const isReadOnly = Boolean(readOnly);
 
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [showTagsModal, setShowTagsModal] = useState(false);
+  const [imageBox, setImageBox] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
   const { alert } = useAppAlert();
 
@@ -32,7 +38,7 @@ export default function ResultScreen() {
   const listOrEmpty = (arr: any): string[] =>
     Array.isArray(arr) ? arr.filter((x: any) => typeof x === 'string' && x.trim()) : [];
 
-  const ua: any = analysis.userAnalysis;
+  const ua: any = analysis.userAnalysis || ensureUserAnalysis(analysis, profile);
   const pros = listOrEmpty(ua?.pros);
   const cons = listOrEmpty(ua?.cons);
   const goalFit = listOrEmpty(ua?.goalFit);
@@ -41,11 +47,78 @@ export default function ResultScreen() {
   const warnings = listOrEmpty(ua?.warnings);
   const alternatives = listOrEmpty(ua?.alternatives);
   const tips = listOrEmpty(ua?.tips);
+  const ingredientTags = listOrEmpty((analysis as any)?.ingredients);
+
+  const inlineTags = useMemo(() => {
+    const labelsFromDetections = Array.isArray((analysis as any).detections)
+      ? (analysis as any).detections
+          .map((d: any) => (typeof d?.label === 'string' ? d.label.trim() : ''))
+          .filter(Boolean)
+      : [];
+
+    const uniq = (arr: string[]) => {
+      const seen = new Set<string>();
+      const out: string[] = [];
+      for (const s of arr) {
+        if (seen.has(s)) continue;
+        seen.add(s);
+        out.push(s);
+      }
+      return out;
+    };
+
+    const base = labelsFromDetections.length > 0 ? labelsFromDetections : ingredientTags;
+    return uniq(base).slice(0, 24);
+  }, [analysis, ingredientTags]);
+
+  const inlineTagsPreview = useMemo(() => inlineTags.slice(0, 4), [inlineTags]);
+  const hasMoreInlineTags = inlineTags.length > 4;
+
+  const detections = Array.isArray((analysis as any).detections) ? (analysis as any).detections : [];
+  const hasDetections = detections.length > 0 && imageBox.width > 0 && imageBox.height > 0;
+
+  // The white content panel overlaps the image header by ~24px (see styles.content.marginTop).
+  // Keep overlays above that overlap so tags don't get hidden.
+  const overlayBottomGuard = 44;
+
+  // NOTE: detection/ingredient chips are intentionally not shown on top of the image.
+
+  const onImageHeaderLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    if (width > 0 && height > 0) setImageBox({ width, height });
+  };
+
+  const requestExit = () => setShowExitConfirm(true);
+
+  const goHomeWithoutSaving = () => {
+    setShowExitConfirm(false);
+    const nav: any = navigation as any;
+    if (typeof nav?.reset === 'function') {
+      nav.reset({ index: 0, routes: [{ name: 'MainTab', params: { screen: 'Scan' } }] });
+      return;
+    }
+    (navigation as any).navigate('MainTab', { screen: 'Scan' });
+  };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (isReadOnly) return;
+
+      const onBack = () => {
+        requestExit();
+        return true;
+      };
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+      return () => sub.remove();
+    }, [isReadOnly])
+  );
 
   const macros = analysis.macros || {};
   const proteinG = typeof macros.protein_g === 'number' ? macros.protein_g : Number(macros.protein_g ?? 0) || 0;
   const carbsG = typeof macros.carbs_g === 'number' ? macros.carbs_g : Number(macros.carbs_g ?? 0) || 0;
   const fatG = typeof macros.fat_g === 'number' ? macros.fat_g : Number(macros.fat_g ?? 0) || 0;
+  const sugarG = typeof macros.sugar_g === 'number' ? macros.sugar_g : Number(macros.sugar_g ?? NaN);
+  const fiberG = typeof macros.fiber_g === 'number' ? macros.fiber_g : Number(macros.fiber_g ?? NaN);
   const sodiumMg = typeof macros.sodium_mg === 'number' ? macros.sodium_mg : Number(macros.sodium_mg ?? NaN);
 
   const proteinKcal = Math.max(0, proteinG) * 4;
@@ -69,6 +142,92 @@ export default function ResultScreen() {
 
   const userDisplayName = (profile?.nickname || profile?.name || '사용자').trim();
 
+  const gradeColor = (ua?.grade && (GRADE_COLORS as any)[ua.grade]) ? (GRADE_COLORS as any)[ua.grade] : COLORS.primary;
+  const scoreText = typeof score100 === 'number' ? `${score100}점` : null;
+
+  const userAllergens = Array.isArray(profile?.allergens) ? profile!.allergens : [];
+  const allergenHits = useMemo(() => computeAllergenHits(userAllergens, analysis), [analysis, userAllergens]);
+
+  const checkLines = useMemo(() => {
+    // 체크: "주의"처럼 아이콘+문장 (너무 길지 않게), '추정' 류 표현 금지
+    const out: string[] = [];
+    const push = (t: string) => {
+      const v = String(t || '').trim();
+      if (!v) return;
+      if (out.includes(v)) return;
+      out.push(v);
+    };
+
+    const dish = String(analysis?.dishName || '').trim();
+    const tags = inlineTags;
+    const has = (...keys: string[]) => {
+      const needles = keys.filter(Boolean);
+      if (needles.length === 0) return false;
+      const hay = [dish, ...tags].join(' ').toLowerCase();
+      return needles.some(k => hay.includes(String(k).toLowerCase()));
+    };
+
+    // Food-specific good points first (so it doesn't feel identical across foods)
+    if (has('샐러드', '채소', '야채', '상추', '브로콜리', '시금치', '토마토', '오이')) {
+      push('채소 비중이 있어 식이섬유 보강과 포만감 유지에 도움이 돼요.');
+    } else if (has('연어', '고등어', '참치', '생선')) {
+      push('생선류는 단백질과 오메가-3 섭취에 도움이 될 수 있어요(조리/소스는 확인).');
+    } else if (has('닭가슴살', '닭고기', '치킨', '계란', '달걀')) {
+      push('단백질 식품(닭/계란) 위주라 근육 유지와 포만감에 도움이 돼요.');
+    } else if (has('두부', '콩', '대두')) {
+      push('콩/두부는 식물성 단백질을 챙기기 좋은 선택이에요.');
+    } else if (dish) {
+      push(`${dish}는(은) 조리/소스에 따라 영양 밸런스가 크게 달라져요. 좋은 쪽으로 조절해볼 수 있어요.`);
+    }
+
+    // Protein
+    if (proteinG >= 20) push('단백질이 충분한 편이라 포만감 유지와 근육 유지에 도움이 돼요.');
+    else if (proteinG > 0 && proteinG < 15) push('단백질이 낮은 편이라 계란/두부/닭/생선 같은 단백질을 곁들이면 좋아요.');
+
+    // Carbs/Fat balance
+    if (macroPct.carbs > 55) push('탄수 비중이 높은 편이라 밥/면 양을 조금 줄이면 더 균형 잡히기 쉬워요.');
+    if (macroPct.fat > 40) push('지방 비중이 높은 편이라 소스·기름을 줄이거나 담백한 조리를 선택하면 좋아요.');
+
+    // Sodium
+    if (Number.isFinite(sodiumMg) && sodiumMg > 800) push('나트륨이 높을 수 있어 국물/장류/가공 소스를 조심하는 게 좋아요.');
+    else if (profile?.healthDiet === 'low_sodium') push('저염식 기준이라면 국물/소스는 적게, 찍어 먹는 방식이 좋아요.');
+
+    // Fiber / sugar (if available)
+    if (Number.isFinite(fiberG) && fiberG >= 6) push('식이섬유가 꽤 있는 편이라 혈당/포만감 관리에 도움이 돼요.');
+    if (Number.isFinite(sugarG) && sugarG >= 15) push('당류가 높을 수 있어 음료/디저트/달달한 소스는 조절하면 좋아요.');
+
+    // Goal/diet gentle hint
+    if (profile?.bodyGoal === 'diet' && (macros.calories ?? 0) >= 700) push('다이어트 목표라면 오늘은 양을 1/2로 조절하면 부담이 줄어요.');
+    if (profile?.healthDiet === 'low_carb' && macroPct.carbs > 45) push('저탄수 식단이라면 탄수(밥/면/빵) 비중을 조금 더 낮추면 좋아요.');
+    if (profile?.healthDiet === 'high_protein' && proteinG < 25) push('고단백 식단이라면 단백질을 한 가지 더 보강하면 좋아요.');
+
+    // Fallback
+    if (out.length === 0) push('전체적으로 무난한 편이에요. 다음엔 더 선명하게 찍으면 조언이 더 구체적이에요.');
+
+    return out.slice(0, 5);
+  }, [analysis?.dishName, fiberG, inlineTags, macroPct.carbs, macroPct.fat, macros.calories, profile?.bodyGoal, profile?.healthDiet, proteinG, sodiumMg, sugarG]);
+
+  const dangerItems = useMemo(() => {
+    // 경고: 사용자에게 위험할 수 있는 것만(알레르기 등)
+    const out: string[] = [];
+
+    if (allergenHits.length > 0) {
+      out.push(`알레르기 경고: ${allergenHits.join(', ')} 성분이 포함됐을 수 있어요. 섭취 전 원재료/성분표를 꼭 확인하세요.`);
+    }
+
+    if (profile?.healthDiet === 'diabetic') {
+      const highCarb = carbsG > 60;
+      const highSugar = Number.isFinite(sugarG) ? sugarG >= 15 : false;
+      if (highCarb || highSugar) {
+        out.push(
+          `혈당 경고: ${highSugar ? '당류' : '탄수'}가 높을 수 있어요. 당뇨/혈당 관리 중이면 양을 줄이거나(1/2) 단백질·채소와 함께 드세요.`
+        );
+      }
+    }
+
+    return out;
+  }, [allergenHits, carbsG, profile?.healthDiet, sugarG]);
+
   const macroAdjustments = useMemo(() => {
     const out: string[] = [];
     if (!(macroKcalSum > 0)) return out;
@@ -86,13 +245,32 @@ export default function ResultScreen() {
   }, [macroKcalSum, macroPct.carbs, macroPct.fat, macroPct.protein, profile?.healthDiet]);
 
   const dietSpecificWarningLine = useMemo(() => {
-    // 상단 '내 식단 정보'는 제거하되, 주의 섹션에서만 최소한의 힌트로 사용
-    if (profile?.healthDiet === 'low_sodium') {
-      const highSodium = Number.isFinite(sodiumMg) ? sodiumMg > 800 : false;
-      return `${userDisplayName}님: 저염식 관점에서 나트륨이 ${highSodium ? '높을 수 있어요' : '확인해보세요'}!`;
+    // 주의 섹션에서만 최소한의 힌트로 사용(사용자별)
+    switch (profile?.healthDiet) {
+      case 'low_sodium': {
+        const highSodium = Number.isFinite(sodiumMg) ? sodiumMg > 800 : false;
+        return `${userDisplayName}님: 저염식 기준으로 나트륨이 ${highSodium ? '높을 수 있어요' : '확인해보세요'}.`;
+      }
+      case 'low_carb': {
+        const highCarb = carbsG > 60;
+        return `${userDisplayName}님: 저탄수 기준으로 탄수화물이 ${highCarb ? '많을 수 있어요' : '무난할 수 있어요'}.`;
+      }
+      case 'diabetic': {
+        const highCarb = carbsG > 60;
+        return `${userDisplayName}님: 혈당 관리라면 탄수/당(음료·소스)을 특히 확인하세요${highCarb ? ' (현재 탄수 비중이 높을 수 있어요)' : ''}.`;
+      }
+      case 'low_fat': {
+        const highFat = fatG > 20;
+        return `${userDisplayName}님: 저지방 기준으로 지방이 ${highFat ? '높을 수 있어요' : '무난할 수 있어요'}.`;
+      }
+      case 'high_protein': {
+        const lowProtein = proteinG < 20;
+        return `${userDisplayName}님: 고단백 기준으로 단백질이 ${lowProtein ? '부족할 수 있어요' : '괜찮을 수 있어요'}.`;
+      }
+      default:
+        return null;
     }
-    return null;
-  }, [profile?.healthDiet, sodiumMg, userDisplayName]);
+  }, [carbsG, fatG, profile?.healthDiet, proteinG, sodiumMg, userDisplayName]);
 
   const renderList = (items: string[], variant: 'good' | 'bad' | 'warn') => {
     const iconName = variant === 'good' ? 'check-circle' : variant === 'bad' ? 'error' : 'warning';
@@ -100,7 +278,21 @@ export default function ResultScreen() {
     const textStyle = variant === 'good' ? styles.goodText : variant === 'bad' ? styles.badText : styles.warnText;
 
     if (!items || items.length === 0) {
-      return <Text style={styles.emptyText}>X</Text>;
+      const emptyText =
+        variant === 'good'
+          ? '현재 사진/정보만으로는 확실한 장점을 단정하기 어려워요. 더 선명하게 찍으면 좋아요.'
+          : variant === 'bad'
+            ? '뚜렷한 주의점은 발견되지 않았어요.'
+            : '추가로 확인할 정보가 없어요.';
+
+      return (
+        <View style={styles.listBlock}>
+          <View style={styles.listRow}>
+            <AppIcon name={iconName as any} size={18} color={color} />
+            <Text style={[styles.listRowText, textStyle]}>{emptyText}</Text>
+          </View>
+        </View>
+      );
     }
 
     return (
@@ -190,34 +382,66 @@ export default function ResultScreen() {
     }
   };
 
+  const handleSaveAndExit = async () => {
+    setShowExitConfirm(false);
+    await handleDone();
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header Image */}
-        <View style={styles.imageHeader}>
+        <View style={styles.imageHeader} onLayout={onImageHeaderLayout}>
           <Image source={{ uri: imageUri }} style={styles.headerImage} />
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => (isReadOnly ? navigation.goBack() : requestExit())}
+          >
             <AppIcon name="chevron-left" size={26} color="white" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.previewButton} onPress={() => setIsImagePreviewOpen(true)}>
-            <Text style={styles.previewButtonText}>사진 자세히 보기</Text>
+            <Text style={styles.previewButtonText}>{isReadOnly ? '기록 사진 보기' : '사진 자세히 보기'}</Text>
           </TouchableOpacity>
 
-          {/* Dish label (sticker-like) */}
-          <View style={styles.dishSticker}>
-            <Text style={styles.dishStickerText} numberOfLines={1}>{analysis.dishName}!</Text>
-          </View>
-
-          {typeof score100 === 'number' ? (
-            <View style={styles.scoreSticker}>
-              <Text style={styles.scoreStickerText}>{score100}점</Text>
-            </View>
-          ) : null}
+          {/* 이미지 위 라벨/태그는 표시하지 않음 (요청사항) */}
         </View>
 
         <View style={styles.content}>
           <Text style={styles.foodName}>{analysis.dishName}</Text>
+          {inlineTagsPreview.length > 0 ? (
+            <View style={styles.inlineTagWrapRow}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.inlineTagRow}
+              >
+                {inlineTagsPreview.map((tag, idx) => (
+                  <View key={`inline-tag-${idx}`} style={styles.inlineTagPill}>
+                    <Text style={styles.inlineTagText} numberOfLines={1}>
+                      {tag}
+                    </Text>
+                  </View>
+                ))}
+
+                {hasMoreInlineTags ? (
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="더보기"
+                    onPress={() => setShowTagsModal(true)}
+                    style={styles.inlineTagMorePill}
+                  >
+                    <Text style={styles.inlineTagMoreText}>더보기</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </ScrollView>
+            </View>
+          ) : null}
           <Text style={styles.calories}>{macros.calories ?? '-'} kcal</Text>
+          {scoreText ? (
+            <View style={[styles.scoreInlinePill, { borderColor: gradeColor, backgroundColor: `${gradeColor}1A` }]}>
+              <Text style={[styles.scoreInlineText, { color: gradeColor }]}>{scoreText}</Text>
+            </View>
+          ) : null}
 
           {/* Macros + Diet Type */}
           <Section title="영양 요약">
@@ -265,22 +489,56 @@ export default function ResultScreen() {
                 ))}
               </View>
             ) : (
-              <Text style={styles.emptyText}>X</Text>
+              <View style={styles.listBlock}>
+                <View style={styles.listRow}>
+                  <AppIcon name="tune" size={18} color={COLORS.textSecondary} />
+                  <Text style={styles.listRowText}>현재는 큰 수정 포인트가 없어요. 사진을 더 선명하게 찍으면 조언이 더 구체화돼요.</Text>
+                </View>
+              </View>
             )}
           </Section>
 
           {/* Good */}
           <Section title="체크">
-            {renderList(pros, 'good')}
+            <View style={styles.listBlock}>
+              {checkLines.map((t, idx) => (
+                <View key={`check-${idx}`} style={styles.listRow}>
+                  <AppIcon name="check-circle" size={18} color={COLORS.success} />
+                  <Text style={[styles.listRowText, styles.goodText]}>{t}</Text>
+                </View>
+              ))}
+            </View>
           </Section>
 
           {/* Bad */}
           <Section title="경고">
-            {renderList(cons, 'bad')}
+            {dangerItems.length > 0 ? (
+              <View style={styles.listBlock}>
+                {dangerItems.map((t, idx) => (
+                  <View key={`danger-${idx}`} style={styles.listRow}>
+                    <AppIcon name="warning" size={18} color={COLORS.danger} />
+                    <Text style={[styles.listRowText, styles.badText]}>{t}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.listBlock}>
+                <View style={styles.listRow}>
+                  <AppIcon name="check-circle" size={18} color={COLORS.textSecondary} />
+                  <Text style={styles.listRowText}>현재 프로필 기준으로 특별히 위험한 경고는 없어요.</Text>
+                </View>
+              </View>
+            )}
           </Section>
 
           {/* Caution */}
           <Section title="주의" subtitle={dietSpecificWarningLine}>
+            {allergenHits.length > 0 ? (
+              <View style={styles.allergenWarningRow}>
+                <AppIcon name="warning" size={18} color={COLORS.danger} />
+                <Text style={styles.allergenWarningText}>알레르기 주의: {allergenHits.join(', ')}</Text>
+              </View>
+            ) : null}
             {renderList(warnings, 'warn')}
           </Section>
 
@@ -296,43 +554,36 @@ export default function ResultScreen() {
                 ))}
               </View>
             ) : (
-              <Text style={styles.emptyText}>X</Text>
+              <View style={styles.listBlock}>
+                <View style={styles.listRow}>
+                  <AppIcon name="swap-horiz" size={18} color={COLORS.textSecondary} />
+                  <Text style={styles.listRowText}>채소를 곁들이고, 소스를 줄이면 더 좋은 선택이 될 수 있어요.</Text>
+                </View>
+              </View>
             )}
           </Section>
 
           {/* Other */}
-          {(goalFit.length > 0 || dietFit.length > 0 || healthImpact.length > 0) ? (
-            <Section title="분석 상세" subtitle="목표/식단/건강 관점에서 더 풀어쓴 내용">
-              {goalFit.length > 0 ? (
-                <>
-                  <Text style={styles.subTitle}>목표 기준</Text>
-                  {goalFit.slice(0, 4).map((t: string, idx: number) => (
-                    <Text key={`goal-${idx}`} style={styles.bulletText}>• {t}</Text>
-                  ))}
-                </>
-              ) : null}
-              {dietFit.length > 0 ? (
-                <>
-                  <Text style={[styles.subTitle, { marginTop: goalFit.length > 0 ? 10 : 6 }]}>현재 식단 기준</Text>
-                  {dietFit.slice(0, 4).map((t: string, idx: number) => (
-                    <Text key={`diet-${idx}`} style={styles.bulletText}>• {t}</Text>
-                  ))}
-                </>
-              ) : null}
-              {healthImpact.length > 0 ? (
-                <>
-                  <Text style={[styles.subTitle, { marginTop: (goalFit.length > 0 || dietFit.length > 0) ? 10 : 6 }]}>건강 관점</Text>
-                  {healthImpact.slice(0, 6).map((t: string, idx: number) => (
-                    <Text key={`health-${idx}`} style={styles.bulletText}>• {t}</Text>
-                  ))}
-                </>
-              ) : null}
-            </Section>
-          ) : (
-            <Section title="분석 상세" subtitle="목표/식단/건강 관점에서 더 풀어쓴 내용">
-              <Text style={styles.emptyText}>X</Text>
-            </Section>
-          )}
+          <Section title="분석 상세" subtitle="목표/식단/건강 관점에서 더 풀어쓴 내용">
+              <>
+                <Text style={styles.subTitle}>목표 기준</Text>
+                {goalFit.slice(0, 4).map((t: string, idx: number) => (
+                  <Text key={`goal-${idx}`} style={styles.bulletText}>• {t}</Text>
+                ))}
+              </>
+              <>
+                <Text style={[styles.subTitle, { marginTop: 10 }]}>현재 식단 기준</Text>
+                {dietFit.slice(0, 4).map((t: string, idx: number) => (
+                  <Text key={`diet-${idx}`} style={styles.bulletText}>• {t}</Text>
+                ))}
+              </>
+              <>
+                <Text style={[styles.subTitle, { marginTop: 10 }]}>건강 관점</Text>
+                {healthImpact.slice(0, 6).map((t: string, idx: number) => (
+                  <Text key={`health-${idx}`} style={styles.bulletText}>• {t}</Text>
+                ))}
+              </>
+          </Section>
 
           {/* At a glance (bottom) */}
           <Section title="한눈에 보기" subtitle={tips[0] ? null : '분석이 비어있으면 기본 설명이 표시돼요.'}>
@@ -344,12 +595,14 @@ export default function ResultScreen() {
             </Text>
           </Section>
 
-          <Button 
-            title="기록에 남기기" 
-            onPress={handleDone} 
-            icon={<AppIcon name="check" size={20} color="white" />}
-            style={styles.doneButton}
-          />
+          {!isReadOnly ? (
+            <Button 
+              title="기록에 남기기" 
+              onPress={handleDone} 
+              icon={<AppIcon name="check" size={20} color="white" />}
+              style={styles.doneButton}
+            />
+          ) : null}
         </View>
       </ScrollView>
 
@@ -359,6 +612,56 @@ export default function ResultScreen() {
           <TouchableOpacity style={styles.modalCloseButton} onPress={() => setIsImagePreviewOpen(false)}>
             <AppIcon name="close" size={26} color="white" />
           </TouchableOpacity>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showTagsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowTagsModal(false)}
+      >
+        <View style={styles.tagsBackdrop}>
+          <View style={styles.tagsCard}>
+            <View style={styles.tagsHeaderRow}>
+              <Text style={styles.tagsTitle}>재료/구성</Text>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="닫기"
+                onPress={() => setShowTagsModal(false)}
+                style={styles.tagsCloseBtn}
+              >
+                <AppIcon name="close" size={20} color={COLORS.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.tagsGrid}>
+              {inlineTags.map((tag, idx) => (
+                <View key={`all-tag-${idx}`} style={styles.tagsGridPill}>
+                  <Text style={styles.tagsGridText}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showExitConfirm} transparent animationType="fade" onRequestClose={() => setShowExitConfirm(false)}>
+        <View style={styles.exitBackdrop}>
+          <View style={styles.exitCard}>
+            <View style={styles.exitHeaderRow}>
+              <Text style={styles.exitTitle}>잠깐!</Text>
+              <TouchableOpacity onPress={() => setShowExitConfirm(false)} style={styles.exitCloseBtn}>
+                <AppIcon name="close" size={20} color={COLORS.text} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.exitMessage}>이 결과를 저장하고 나갈까요?</Text>
+
+            <View style={styles.exitActionsRow}>
+              <Button title="저장하기" onPress={handleSaveAndExit} style={styles.exitBtn} />
+              <Button title="나가기" variant="outline" onPress={goHomeWithoutSaving} style={styles.exitBtn} />
+            </View>
+          </View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -409,39 +712,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
-  dishSticker: {
-    position: 'absolute',
-    left: 16,
-    bottom: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 14,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    maxWidth: '75%',
-  },
-  dishStickerText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  scoreSticker: {
-    position: 'absolute',
-    right: 16,
-    bottom: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 14,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-  },
-  scoreStickerText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '900',
-  },
   content: {
     padding: 24,
     marginTop: -24,
@@ -455,10 +725,113 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     marginBottom: 4,
   },
+  inlineTagWrapRow: {
+    marginBottom: 4,
+  },
+  inlineTagRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 8,
+    paddingRight: 8,
+    maxWidth: '100%',
+  },
+  inlineTagPill: {
+    backgroundColor: 'rgba(17, 24, 39, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  inlineTagText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  inlineTagMorePill: {
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  inlineTagMoreText: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   calories: {
     fontSize: 20,
     color: COLORS.textSecondary,
+    marginBottom: 6,
+  },
+  scoreInlinePill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
     marginBottom: 24,
+  },
+  scoreInlineText: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  allergenWarningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  allergenWarningText: {
+    color: COLORS.danger,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+
+  exitBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  exitCard: {
+    backgroundColor: COLORS.background,
+    borderRadius: 16,
+    padding: 16,
+  },
+  exitHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  exitTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: COLORS.text,
+  },
+  exitCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.backgroundGray,
+  },
+  exitMessage: {
+    marginTop: 10,
+    fontSize: 14,
+    lineHeight: 20,
+    color: COLORS.textSecondary,
+  },
+  exitActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  exitBtn: {
+    flex: 1,
   },
   section: {
     paddingVertical: 16,
@@ -488,6 +861,40 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginBottom: 10,
+  },
+  checkBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 2,
+  },
+  checkBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  checkBadgeGood: {
+    backgroundColor: 'rgba(34, 197, 94, 0.10)',
+    borderColor: 'rgba(34, 197, 94, 0.25)',
+  },
+  checkBadgeTip: {
+    backgroundColor: COLORS.backgroundGray,
+    borderColor: COLORS.border,
+  },
+  checkBadgeText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: COLORS.text,
+  },
+  checkBadgeTextGood: {
+    color: COLORS.success,
+  },
+  checkBadgeTextTip: {
+    color: COLORS.text,
   },
   macrosContainer: {
     flexDirection: 'row',
@@ -590,6 +997,56 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 15,
     color: COLORS.textSecondary,
+    fontWeight: '800',
+  },
+  tagsBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  tagsCard: {
+    backgroundColor: COLORS.background,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  tagsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  tagsTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: COLORS.text,
+  },
+  tagsCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.backgroundGray,
+  },
+  tagsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  tagsGridPill: {
+    backgroundColor: COLORS.backgroundGray,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  tagsGridText: {
+    color: COLORS.text,
+    fontSize: 13,
     fontWeight: '800',
   },
   analysisNote: {

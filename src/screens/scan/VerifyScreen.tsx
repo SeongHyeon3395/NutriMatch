@@ -19,19 +19,49 @@ import { Button } from '../../components/ui/Button';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { analyzeFoodImage } from '../../services/api';
 import { FoodAnalysis } from '../../types/user';
-import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
+import { ensureUserAnalysis } from '../../services/userAnalysis';
+import { useAppAlert } from '../../components/ui/AppAlert';
 import { Card } from '../../components/ui/Card';
 import { MONTHLY_SCAN_LIMIT } from '../../config';
 import { getMonthlyScanCountRemote, getSessionUserId } from '../../services/userData';
 
+function tryGetImageResizer(): any | null {
+  try {
+    return require('react-native-image-resizer')?.default ?? require('react-native-image-resizer');
+  } catch {
+    return null;
+  }
+}
+
+function toFileUri(uriOrPath: string) {
+  if (!uriOrPath) return '';
+  if (uriOrPath.startsWith('file://')) return uriOrPath;
+  if (uriOrPath.startsWith('content://')) return uriOrPath;
+  return `file://${uriOrPath}`;
+}
+
+async function getImageSizeSafe(uri: string): Promise<{ width: number; height: number } | null> {
+  return new Promise(resolve => {
+    try {
+      Image.getSize(
+        uri,
+        (width, height) => resolve({ width, height }),
+        () => resolve(null)
+      );
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 export default function VerifyScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { imageUri } = route.params as { imageUri: string };
+  const { imageUri, autoAnalyze } = route.params as { imageUri: string; autoAnalyze?: boolean };
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const { alert } = useAppAlert();
   const profile = useUserStore(state => state.profile);
+  const { alert } = useAppAlert();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   const insets = useSafeAreaInsets();
@@ -127,8 +157,33 @@ export default function VerifyScreen() {
 
     setIsAnalyzing(true);
     try {
+      // Enforce max 1024 only at upload/analyze time.
+      let uploadUri = imageUri;
+      const size = await getImageSizeSafe(imageUri);
+      if (size && (size.width > 1024 || size.height > 1024)) {
+        const Resizer = tryGetImageResizer();
+        if (Resizer?.createResizedImage) {
+          const resized = await Resizer.createResizedImage(
+            imageUri,
+            1024,
+            1024,
+            'JPEG',
+            85,
+            0,
+            undefined,
+            false,
+            {
+              mode: 'contain',
+              onlyScaleDown: true,
+            } as any
+          );
+          const resizedUri = toFileUri((resized as any)?.uri || (resized as any)?.path);
+          if (resizedUri) uploadUri = resizedUri;
+        }
+      }
+
       const response = await analyzeFoodImage(
-        imageUri,
+        uploadUri,
         profile
           ? {
               bodyGoal: profile.bodyGoal,
@@ -156,11 +211,21 @@ export default function VerifyScreen() {
         description: data.notes || '분석된 정보가 없습니다.',
         categories: [], 
         confidence: data.confidence || 0,
+        ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
+        allergens: Array.isArray(data.allergens) ? data.allergens : [],
+        detections: Array.isArray((data as any).detections) ? (data as any).detections : [],
         macros: {
+          // Keep as many macro fields as backend provides.
           calories: data.estimated_macros?.calories,
-          protein_g: data.estimated_macros?.protein_g,
           carbs_g: data.estimated_macros?.carbs_g,
+          protein_g: data.estimated_macros?.protein_g,
           fat_g: data.estimated_macros?.fat_g,
+          sugar_g: data.estimated_macros?.sugar_g,
+          saturated_fat_g: data.estimated_macros?.saturated_fat_g,
+          trans_fat_g: data.estimated_macros?.trans_fat_g,
+          sodium_mg: data.estimated_macros?.sodium_mg,
+          cholesterol_mg: data.estimated_macros?.cholesterol_mg,
+          fiber_g: data.estimated_macros?.fiber_g,
         },
         userAnalysis: data.userAnalysis,
         source: data.source,
@@ -168,8 +233,11 @@ export default function VerifyScreen() {
         geminiUsed: data.geminiUsed || false,
       };
 
+      // Always ensure detailed user-facing analysis text exists
+      analysis.userAnalysis = ensureUserAnalysis(analysis, profile);
+
       navigation.navigate('Result', {
-        imageUri,
+        imageUri: uploadUri,
         analysis,
       });
     } catch (error: any) {
@@ -182,6 +250,21 @@ export default function VerifyScreen() {
       setIsAnalyzing(false);
     }
   };
+
+  const autoAnalyzeTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (!autoAnalyze) return;
+    if (autoAnalyzeTriggeredRef.current) return;
+    autoAnalyzeTriggeredRef.current = true;
+    setShowVerifyTutorial(false);
+
+    const t = setTimeout(() => {
+      void handleAnalyze();
+    }, 80);
+
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAnalyze]);
 
   const handleAnalyzeFromTutorial = async () => {
     const ok = await ensureScanQuotaOrAlert();

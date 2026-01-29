@@ -4,7 +4,7 @@ buildscript {
         minSdkVersion = 24
         compileSdkVersion = 36
         targetSdkVersion = 36
-        ndkVersion = "27.1.12297006"
+        ndkVersion = "29.0.14206865"
         kotlinVersion = "2.1.20"
     }
     repositories {
@@ -19,3 +19,20 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// Ensure all Android subprojects use the same NDK version.
+// Some native modules (CMake/externalNativeBuild) may otherwise fall back to a different installed NDK.
+subprojects { subproject ->
+    subproject.plugins.withId('com.android.application') {
+        def androidExt = subproject.extensions.findByName('android')
+        if (androidExt != null && androidExt.hasProperty('ndkVersion')) {
+            androidExt.ndkVersion = rootProject.ext.ndkVersion
+        }
+    }
+    subproject.plugins.withId('com.android.library') {
+        def androidExt = subproject.extensions.findByName('android')
+        if (androidExt != null && androidExt.hasProperty('ndkVersion')) {
+            androidExt.ndkVersion = rootProject.ext.ndkVersion
+        }
+    }
+}

@@ -17,6 +17,8 @@ import OnboardingScreen from '../screens/onboarding/OnboardingScreen';
 import MainTabNavigator from './MainTabNavigator';
 import VerifyScreen from '../screens/scan/VerifyScreen';
 import ResultScreen from '../screens/scan/ResultScreen';
+import CameraScreen from '../screens/scan/CameraScreen';
+import EditScreen from '../screens/scan/EditScreen.tsx';
 import HomeScreen from '../screens/home/HomeScreen'; // Keep for legacy if needed, or remove
 import FoodResultScreen from '../screens/home/FoodResultScreen';
 import PrivacySecurityScreen from '../screens/main/PrivacySecurityScreen';
@@ -234,6 +236,8 @@ export default function RootNavigator() {
           <Stack.Screen name="MainTab" component={MainTabNavigator} />
           
           {/* Scan Flow */}
+          <Stack.Screen name="Camera" component={CameraScreen} />
+          <Stack.Screen name="Edit" component={EditScreen} />
           <Stack.Screen name="Verify" component={VerifyScreen} />
           <Stack.Screen name="Result" component={ResultScreen} />
 

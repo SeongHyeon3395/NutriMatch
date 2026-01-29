@@ -71,6 +71,19 @@ export interface FoodAnalysis {
   description: string;
   categories: string[];
   confidence: number;
+  ingredients?: string[];
+  allergens?: string[];
+
+  // 사진 위 좌표 기반 오버레이(0~1 정규화)
+  detections?: Array<{
+    label: string;
+    box: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    };
+  }>;
   
   // 영양 성분
   macros: {

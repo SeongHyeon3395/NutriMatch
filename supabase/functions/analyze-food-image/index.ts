@@ -29,6 +29,11 @@ function safeNumber(x: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function clamp01(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
 function hasMeaningfulUserContext(ctx: any): boolean {
   if (!ctx || typeof ctx !== 'object') return false;
   const keys = Object.keys(ctx);
@@ -242,6 +247,7 @@ async function callGemini(
   {
     "dish": string|null, 
     "brand": string|null,
+    "detections": Array<{ "label": string, "box": { "x": number, "y": number, "width": number, "height": number } }>,
     "ingredients": string[], 
     "allergens": string[], 
     "estimated_macros": { "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number, "sugar_g": number, "sodium_mg": number, "cholesterol_mg": number, "saturated_fat_g": number, "trans_fat_g": number },
@@ -270,6 +276,13 @@ async function callGemini(
       - **🔥 매크로는 절대 0이나 null로 두지 마세요!** 정확한 값을 모르면 유사 음식(예: 같은 카테고리의 평균)이나 일반 상식 기반으로 합리적인 추정치를 반드시 채우세요.
       - 예: 김치찌개 1인분 → 칼로리 ~350-450kcal, 단백질 ~20g, 탄수화물 ~30g, 지방 ~15g 정도로 추정
     3. **알레르기/성분**: 원재료를 추정하여 알레르기 유발 가능성을 판단하세요.
+    3-1. **좌표(detections)**: 이미지 속에서 보이는 음식 구성 요소(예: 김치/고기/밥/샐러드/라면/연어/토마토 등)를 가능한 만큼 나열하고,
+      각 항목에 대해 바운딩 박스를 **정규화 좌표(0~1)** 로 제공하세요.
+      - label은 **반드시 한국어 명사**로 짧게 쓰세요. (예: "연어", "토마토", "밥", "김치")
+      - x, y: 박스의 좌상단 좌표(0~1)
+      - width, height: 박스의 너비/높이(0~1)
+      - 박스는 이미지 영역을 벗어나면 안 됩니다.
+      - 자신 없으면 빈 배열 []로 두되, 가능한 한 채우세요.
     4. **Notes**: 영양값이 (a) 포장지 OCR 기반인지, (b) 일반 지식 기반 추정인지, (c) 혼합인지 반드시 명시하세요.
     5. **개인화(userAnalysis)**:
       - 사용자 컨텍스트가 있으면 반드시 반영하여 grade/reasons/warnings/alternatives/tips를 작성하세요.
@@ -623,6 +636,30 @@ serve(async (req: Request) => {
       
       // 🚨 [핵심 수정] 여기에 brand 필드를 반드시 포함시켜야 프론트엔드로 나갑니다.
       brand: geminiData?.brand ?? null,
+
+      // 좌표 기반 오버레이용: 0~1 정규화 좌표
+      detections: Array.isArray(geminiData?.detections)
+        ? geminiData.detections
+            .filter((d: any) => d && typeof d === 'object')
+            .map((d: any) => ({
+              label: typeof d.label === 'string' ? d.label : (typeof d.name === 'string' ? d.name : ''),
+              box: {
+                x: clamp01(typeof d?.box?.x === 'number' ? d.box.x : (typeof d?.bbox?.x === 'number' ? d.bbox.x : 0)),
+                y: clamp01(typeof d?.box?.y === 'number' ? d.box.y : (typeof d?.bbox?.y === 'number' ? d.bbox.y : 0)),
+                width: clamp01(typeof d?.box?.width === 'number' ? d.box.width : (typeof d?.bbox?.width === 'number' ? d.bbox.width : 0)),
+                height: clamp01(typeof d?.box?.height === 'number' ? d.box.height : (typeof d?.bbox?.height === 'number' ? d.bbox.height : 0)),
+              },
+            }))
+            .map((d: any) => {
+              // Keep the box inside image bounds
+              const x = clamp01(d.box.x);
+              const y = clamp01(d.box.y);
+              const width = clamp01(Math.min(d.box.width, 1 - x));
+              const height = clamp01(Math.min(d.box.height, 1 - y));
+              return { ...d, box: { x, y, width, height } };
+            })
+            .filter((d: any) => d.label && d.box && d.box.width > 0 && d.box.height > 0)
+        : [],
 
       ingredients: Array.isArray(geminiData?.ingredients) ? geminiData.ingredients : [],
       allergens: Array.isArray(geminiData?.allergens) ? geminiData.allergens : [],
