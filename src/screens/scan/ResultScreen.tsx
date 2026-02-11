@@ -9,8 +9,7 @@ import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
-import { getMonthlyScanCountRemote, getSessionUserId, insertFoodLogRemote } from '../../services/userData';
-import { MONTHLY_SCAN_LIMIT } from '../../config';
+import { getSessionUserId, insertFoodLogRemote } from '../../services/userData';
 import { getFoodScore100 } from '../../services/foodScore';
 import { ensureUserAnalysis } from '../../services/userAnalysis';
 import { computeAllergenHits } from '../../services/allergen';
@@ -228,6 +227,20 @@ export default function ResultScreen() {
     return out;
   }, [allergenHits, carbsG, profile?.healthDiet, sugarG]);
 
+  const cautionItems = useMemo(() => {
+    // "주의"에는 경고(빨간 단계: 알레르기/혈당 등) 중복 표시를 넣지 않음
+    const w = Array.isArray(warnings) ? warnings : [];
+    return w.filter(t => {
+      const s = String(t || '').trim();
+      if (!s) return false;
+      if (/알레르기|혈당|당뇨/i.test(s)) return false;
+      if (/^\s*알레르기\s*주의/i.test(s)) return false;
+      if (/^\s*알레르기\s*경고/i.test(s)) return false;
+      if (/^\s*혈당\s*경고/i.test(s)) return false;
+      return true;
+    });
+  }, [warnings]);
+
   const macroAdjustments = useMemo(() => {
     const out: string[] = [];
     if (!(macroKcalSum > 0)) return out;
@@ -334,18 +347,6 @@ export default function ResultScreen() {
 
       const userId = await getSessionUserId().catch(() => null);
       if (userId) {
-        try {
-          const used = await getMonthlyScanCountRemote();
-          if (typeof used === 'number' && used >= MONTHLY_SCAN_LIMIT) {
-            alert({
-              title: '스캔 기회 소진',
-              message: `이번 달 스캔 기회를 모두 사용했어요. (${MONTHLY_SCAN_LIMIT}회/월)`,
-            });
-            return;
-          }
-        } catch {
-          // 카운트 조회 실패 시에는 보수적으로 막지 않고 진행
-        }
         // 서버 우선 저장
         const saved = await insertFoodLogRemote({
           userId,
@@ -368,7 +369,7 @@ export default function ResultScreen() {
         });
       }
 
-      navigation.navigate('MainTab', { screen: 'History' });
+      navigation.navigate('History');
     } catch (e) {
       console.error('Failed to save food log', e);
       const message =
@@ -533,13 +534,7 @@ export default function ResultScreen() {
 
           {/* Caution */}
           <Section title="주의" subtitle={dietSpecificWarningLine}>
-            {allergenHits.length > 0 ? (
-              <View style={styles.allergenWarningRow}>
-                <AppIcon name="warning" size={18} color={COLORS.danger} />
-                <Text style={styles.allergenWarningText}>알레르기 주의: {allergenHits.join(', ')}</Text>
-              </View>
-            ) : null}
-            {renderList(warnings, 'warn')}
+            {renderList(cautionItems, 'warn')}
           </Section>
 
           {/* Alternatives */}

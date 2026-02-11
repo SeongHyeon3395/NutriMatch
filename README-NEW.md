@@ -223,21 +223,51 @@ npx supabase secrets set GEMINI_MODEL=gemini-1.5-flash --project-ref wrgeaabfsbj
 
 ## 🐛 알려진 이슈 및 해결
 
-### 1. `androidx.transition.AutoTransition` 에러
+### 1. 히스토리에서 이미지가 안 보이는 문제
+**원인**: Supabase Storage 설정 또는 업로드 실패
+**해결**: 
+```powershell
+# 진단 스크립트 실행
+.\scripts\diagnose-backend.ps1
+
+# 자세한 해결 방법은 TROUBLESHOOTING.md 참조
+```
+
+**빠른 체크리스트**:
+- [ ] Supabase Storage에 `food-images` 버킷 생성 (Public)
+- [ ] Storage RLS 정책 3개 추가 (INSERT, SELECT, DELETE)
+- [ ] Edge Function 로그에서 에러 확인
+
+### 2. Gemini API 오류
+**원인**: Edge Function에 GEMINI_API_KEY가 설정되지 않음
+**해결**:
+```powershell
+# 자동 설정 스크립트 실행
+.\scripts\update-gemini-key.ps1
+
+# 또는 수동 설정:
+# Supabase Dashboard → Edge Functions → analyze-food-image
+# → Secrets 탭 → GEMINI_API_KEY 추가
+```
+
+### 3. `androidx.transition.AutoTransition` 에러
 **해결**: `android/app/build.gradle`에 의존성 추가
 ```gradle
 implementation 'androidx.transition:transition:1.4.1'
 implementation 'androidx.appcompat:appcompat:1.6.1'
 ```
 
-### 2. 갤러리 권한 (Android 13+)
+### 4. 갤러리 권한 (Android 13+)
 **해결**: `READ_MEDIA_IMAGES` + `READ_EXTERNAL_STORAGE` (API 레벨 분기)
 
-### 3. Metro 캐시 문제
+### 5. Metro 캐시 문제
 **해결**: 
 ```bash
 npx react-native start --reset-cache
 ```
+
+### 📖 더 자세한 문제 해결
+→ **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** 참조
 
 ---
 

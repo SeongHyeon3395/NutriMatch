@@ -26,10 +26,13 @@ import TermsScreen from '../screens/main/TermsScreen';
 import PrivacyPolicyScreen from '../screens/main/PrivacyPolicyScreen';
 import SettingsScreen from '../screens/main/SettingsScreen';
 import PersonalInfoScreen from '../screens/main/PersonalInfoScreen';
+import MonthlyDietScoresScreen from '../screens/main/MonthlyDietScoresScreen';
 import EditPersonalInfoScreen from '../screens/main/EditPersonalInfoScreen.tsx';
 import EditAllergensScreen from '../screens/main/EditAllergensScreen.tsx';
 import MealDetailScreen from '../screens/main/MealDetailScreen';
 import NotificationSettingsScreen from '../screens/main/NotificationSettingsScreen';
+import MealPlanDetailScreen from '../screens/main/MealPlanDetailScreen';
+import HistoryScreen from '../screens/main/HistoryScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -179,6 +182,10 @@ export default function RootNavigator() {
 
         if (userInitiated) {
           resetTo('Login');
+          alert({
+            title: '로그아웃',
+            message: '로그아웃 되었습니다.',
+          });
           return;
         }
 
@@ -234,6 +241,7 @@ export default function RootNavigator() {
           <Stack.Screen name="Signup" component={SignupScreen} />
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
           <Stack.Screen name="MainTab" component={MainTabNavigator} />
+          <Stack.Screen name="History" component={HistoryScreen} />
           
           {/* Scan Flow */}
           <Stack.Screen name="Camera" component={CameraScreen} />
@@ -243,6 +251,7 @@ export default function RootNavigator() {
 
           {/* Meal */}
           <Stack.Screen name="MealDetail" component={MealDetailScreen} />
+          <Stack.Screen name="MealPlanDetail" component={MealPlanDetailScreen} />
 
           {/* Settings */}
           <Stack.Screen name="Settings" component={SettingsScreen} />
@@ -250,6 +259,7 @@ export default function RootNavigator() {
           <Stack.Screen name="PersonalInfo" component={PersonalInfoScreen} />
           <Stack.Screen name="EditPersonalInfo" component={EditPersonalInfoScreen} />
           <Stack.Screen name="EditAllergens" component={EditAllergensScreen} />
+          <Stack.Screen name="MonthlyDietScores" component={MonthlyDietScoresScreen} />
           <Stack.Screen name="Privacy" component={PrivacySecurityScreen} />
           <Stack.Screen name="Terms" component={TermsScreen} />
           <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />

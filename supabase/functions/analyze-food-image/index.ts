@@ -15,13 +15,127 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // ... (MacroBlock, parseJsonBlock, callGemini 함수는 기존과 동일하므로 생략 가능하지만 전체 흐름을 위해 유지) ...
 
 function parseJsonBlock(text: string): any {
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return { raw: text };
-  try { return JSON.parse(match[0]); } catch { return { raw: text }; }
+  const src = String(text ?? '');
+
+  // 1) Strip common markdown fences
+  const unfenced = src
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .trim();
+
+  // 2) Extract first balanced JSON object block
+  const extractFirstJsonObject = (s: string): string | null => {
+    const start = s.indexOf('{');
+    if (start < 0) return null;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = start; i < s.length; i++) {
+      const ch = s[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch === '\\') {
+          escaped = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+      if (ch === '{') depth++;
+      if (ch === '}') depth--;
+      if (depth === 0) {
+        return s.slice(start, i + 1);
+      }
+    }
+    return null;
+  };
+
+  const jsonBlock = extractFirstJsonObject(unfenced);
+
+  // 3) Try JSON parse
+  if (jsonBlock) {
+    try {
+      const parsed: any = JSON.parse(jsonBlock);
+      // Normalize common variants
+      if (parsed && typeof parsed === 'object') {
+        if (!parsed.dish) {
+          const alt = parsed.dishName ?? parsed.dish_name ?? parsed.food ?? parsed.foodName;
+          if (typeof alt === 'string' && alt.trim()) parsed.dish = alt.trim();
+        }
+        if (parsed.dish && typeof parsed.dish === 'object' && typeof parsed.dish.name === 'string') {
+          parsed.dish = parsed.dish.name;
+        }
+      }
+      return parsed;
+    } catch {
+      // fall through to regex salvage
+    }
+  }
+
+  // 4) Salvage dish/brand from semi-structured output
+  const dishMatch = unfenced.match(/"dish"\s*:\s*"([^"\n\r]+)"/i)
+    ?? unfenced.match(/\bdish\b\s*[:=]\s*"?([^"\n\r,}]+)"?/i)
+    ?? unfenced.match(/음식\s*[:：]\s*([^\n\r]+)$/m);
+  const brandMatch = unfenced.match(/"brand"\s*:\s*"([^"\n\r]+)"/i);
+  const out: any = { raw: src };
+  if (dishMatch && typeof dishMatch[1] === 'string' && dishMatch[1].trim()) out.dish = dishMatch[1].trim();
+  if (brandMatch && typeof brandMatch[1] === 'string' && brandMatch[1].trim()) out.brand = brandMatch[1].trim();
+  return out;
 }
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(String(input ?? ''));
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function readPromptFromEnv(name: string, b64Name: string): string {
+  const direct = (Deno.env.get(name) || '').trim();
+  if (direct) return direct;
+  const b64 = (Deno.env.get(b64Name) || '').trim();
+  if (!b64) return '';
+  try {
+    // Decode base64 as UTF-8 (atob returns a binary string)
+    const bin = atob(b64);
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return '';
+  }
+}
+
+function readPromptFromEnvWithSource(
+  name: string,
+  b64Name: string,
+): { text: string; source: 'env_direct' | 'env_b64' | 'missing' } {
+  const direct = (Deno.env.get(name) || '').trim();
+  if (direct) return { text: direct, source: 'env_direct' };
+  const b64 = (Deno.env.get(b64Name) || '').trim();
+  if (!b64) return { text: '', source: 'missing' };
+  try {
+    const bin = atob(b64);
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return { text: new TextDecoder().decode(bytes), source: 'env_b64' };
+  } catch {
+    return { text: '', source: 'missing' };
+  }
 }
 
 function safeNumber(x: any): number | null {
@@ -32,6 +146,214 @@ function safeNumber(x: any): number | null {
 function clamp01(n: number) {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(1, n));
+}
+
+function inferDishCategory(dishRaw: any): 'meal' | 'snack' | 'drink' | 'unknown' {
+  const dish = typeof dishRaw === 'string' ? dishRaw.toLowerCase() : '';
+  if (!dish) return 'unknown';
+
+  // Drinks
+  if (/(커피|라떼|아메리카노|주스|스무디|콜라|사이다|탄산|음료|밀크티|차|티|에너지드링크)/i.test(dish)) {
+    return 'drink';
+  }
+
+  // Snacks / desserts
+  if (/(과자|쿠키|초콜릿|젤리|사탕|아이스크림|케이크|도넛|도너츠|빵|베이커리|디저트|스낵|칩|견과|바|프로틴바)/i.test(dish)) {
+    return 'snack';
+  }
+
+  // Meals
+  if (/(밥|덮밥|비빔밥|국|탕|찌개|전골|면|라면|우동|파스타|짜장|짬뽕|피자|버거|햄버거|샌드위치|김밥|도시락|샐러드|스테이크|돈까스|카레|볶음|구이)/i.test(dish)) {
+    return 'meal';
+  }
+
+  return 'unknown';
+}
+
+function buildCategoryDefaultMacros(dishRaw: any) {
+  const dish = typeof dishRaw === 'string' ? dishRaw.toLowerCase() : '';
+
+  // Baseline defaults
+  let d = {
+    calories: 300,
+    protein_g: 15,
+    carbs_g: 40,
+    fat_g: 10,
+    sugar_g: 5,
+    sodium_mg: 600,
+    cholesterol_mg: 30,
+    saturated_fat_g: 3,
+    trans_fat_g: 0,
+  };
+
+  if (!dish) return d;
+
+  if (dish.includes('밥') || dish.includes('덮밥') || dish.includes('비빔밥')) {
+    d = { calories: 550, protein_g: 18, carbs_g: 85, fat_g: 12, sugar_g: 8, sodium_mg: 800, cholesterol_mg: 40, saturated_fat_g: 4, trans_fat_g: 0 };
+  } else if (dish.includes('라면') || dish.includes('면') || dish.includes('우동') || dish.includes('파스타')) {
+    d = { calories: 500, protein_g: 12, carbs_g: 75, fat_g: 15, sugar_g: 5, sodium_mg: 2000, cholesterol_mg: 20, saturated_fat_g: 7, trans_fat_g: 0 };
+  } else if (dish.includes('찌개') || dish.includes('국') || dish.includes('탕') || dish.includes('전골')) {
+    d = { calories: 400, protein_g: 22, carbs_g: 30, fat_g: 18, sugar_g: 6, sodium_mg: 1200, cholesterol_mg: 50, saturated_fat_g: 6, trans_fat_g: 0 };
+  } else if (dish.includes('치킨') || dish.includes('닭')) {
+    d = { calories: 700, protein_g: 45, carbs_g: 35, fat_g: 38, sugar_g: 8, sodium_mg: 1400, cholesterol_mg: 120, saturated_fat_g: 10, trans_fat_g: 0 };
+  } else if (dish.includes('샐러드')) {
+    d = { calories: 200, protein_g: 8, carbs_g: 20, fat_g: 8, sugar_g: 10, sodium_mg: 400, cholesterol_mg: 15, saturated_fat_g: 2, trans_fat_g: 0 };
+  } else if (dish.includes('피자') || dish.includes('버거') || dish.includes('햄버거')) {
+    d = { calories: 650, protein_g: 25, carbs_g: 60, fat_g: 32, sugar_g: 12, sodium_mg: 1300, cholesterol_mg: 70, saturated_fat_g: 12, trans_fat_g: 0.5 };
+  } else if (dish.includes('빵') || dish.includes('케이크') || dish.includes('도넛') || dish.includes('쿠키') || dish.includes('과자') || dish.includes('초콜릿')) {
+    d = { calories: 350, protein_g: 6, carbs_g: 50, fat_g: 14, sugar_g: 20, sodium_mg: 300, cholesterol_mg: 25, saturated_fat_g: 7, trans_fat_g: 0 };
+  } else if (/(커피|라떼|주스|스무디|콜라|사이다|탄산|음료)/i.test(dish)) {
+    d = { calories: 150, protein_g: 2, carbs_g: 30, fat_g: 2, sugar_g: 20, sodium_mg: 50, cholesterol_mg: 5, saturated_fat_g: 1, trans_fat_g: 0 };
+  }
+
+  return d;
+}
+
+function ensureEstimatedMacrosInPlace(geminiData: any, geminiNoticeRef: { value: string }) {
+  if (!geminiData || typeof geminiData !== 'object') return;
+
+  const defaults = buildCategoryDefaultMacros(geminiData?.dish);
+  const raw = geminiData.estimated_macros;
+  const obj = raw && typeof raw === 'object' ? { ...raw } : {};
+
+  const toNumOrNull = (v: any) => {
+    const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const next: any = {
+    calories: toNumOrNull(obj.calories),
+    protein_g: toNumOrNull(obj.protein_g),
+    carbs_g: toNumOrNull(obj.carbs_g),
+    fat_g: toNumOrNull(obj.fat_g),
+    sugar_g: toNumOrNull(obj.sugar_g),
+    sodium_mg: toNumOrNull(obj.sodium_mg),
+    cholesterol_mg: toNumOrNull(obj.cholesterol_mg),
+    saturated_fat_g: toNumOrNull(obj.saturated_fat_g),
+    trans_fat_g: toNumOrNull(obj.trans_fat_g),
+  };
+
+  const hasAnyMeaningful =
+    (next.calories ?? 0) > 0 ||
+    (next.protein_g ?? 0) > 0 ||
+    (next.carbs_g ?? 0) > 0 ||
+    (next.fat_g ?? 0) > 0;
+
+  // If model omitted macros entirely or gave zeros, fill all from defaults.
+  if (!hasAnyMeaningful) {
+    geminiData.estimated_macros = { ...defaults };
+    geminiNoticeRef.value = (geminiNoticeRef.value || '') + ' [서버 폴백: 매크로를 카테고리별 평균치로 추정했어요.]';
+    return;
+  }
+
+  // Otherwise fill missing fields only.
+  for (const k of Object.keys(defaults)) {
+    if (next[k] === null || next[k] === undefined || (typeof next[k] === 'number' && !Number.isFinite(next[k]))) {
+      next[k] = (defaults as any)[k];
+    }
+  }
+
+  // Guard against negative / nonsense values.
+  for (const k of Object.keys(next)) {
+    if (typeof next[k] === 'number' && next[k] < 0) next[k] = (defaults as any)[k];
+  }
+
+  geminiData.estimated_macros = next;
+}
+
+function normalizeUserAnalysisByDishCategory(ua: any, dishRaw: any) {
+  if (!ua || typeof ua !== 'object') return ua;
+  const category = inferDishCategory(dishRaw);
+
+  const list = Array.isArray((ua as any).alternatives)
+    ? (ua as any).alternatives.filter((x: any) => typeof x === 'string' && x.trim())
+    : [];
+
+  if (category === 'meal') {
+    const mealish = [
+      '비슷한 식사 대안: 닭가슴살/생선 + 밥(또는 현미) + 채소',
+      '비슷한 식사 대안: 국/찌개류는 국물 적게 + 단백질(두부/계란) 추가',
+      '비슷한 식사 대안: 샐러드 + 단백질 토핑(닭/연어/두부) + 소스 최소',
+    ];
+    (ua as any).alternatives = [...mealish, ...list].slice(0, 6);
+  } else if (category === 'snack') {
+    const snackish = [
+      '간식 대안: 그릭요거트 + 과일',
+      '간식 대안: 견과류 한 줌 또는 단백질바(당류 낮은 제품)',
+      '간식 대안: 삶은 계란/두유/치즈(소량)',
+    ];
+    (ua as any).alternatives = [...snackish, ...list].slice(0, 6);
+  } else if (category === 'drink') {
+    const drinkish = [
+      '음료 대안: 무가당 아메리카노/차',
+      '음료 대안: 탄산수 + 레몬',
+      '음료 대안: 당류 낮은 프로틴 음료(성분표 확인)',
+    ];
+    (ua as any).alternatives = [...drinkish, ...list].slice(0, 6);
+  }
+
+  return ua;
+}
+
+function buildGenericUserAnalysisFallback(params: {
+  dish: string | null;
+  estimated_macros: any;
+  warningsFromAllergens: string[];
+}) {
+  const dish = typeof params.dish === 'string' && params.dish.trim() ? params.dish.trim() : '이 음식';
+  const macros = params.estimated_macros || {};
+
+  const calories = safeNumber(macros.calories);
+  const protein = safeNumber(macros.protein_g);
+  const carbs = safeNumber(macros.carbs_g);
+  const fat = safeNumber(macros.fat_g);
+  const sugar = safeNumber(macros.sugar_g);
+  const sodium = safeNumber(macros.sodium_mg);
+
+  const isHighCalories = calories !== null ? calories >= 650 : false;
+  const isHighSodium = sodium !== null ? sodium >= 900 : false;
+  const isHighSugar = sugar !== null ? sugar >= 18 : false;
+  const isHighProtein = protein !== null ? protein >= 25 : false;
+
+  const score = (() => {
+    let s = 75;
+    if (isHighCalories) s -= 15;
+    if (isHighSodium) s -= 15;
+    if (isHighSugar) s -= 10;
+    if (isHighProtein) s += 5;
+    return Math.max(0, Math.min(100, Math.round(s)));
+  })();
+
+  const grade = score >= 85 ? 'very_good' : score >= 70 ? 'good' : score >= 55 ? 'neutral' : score >= 40 ? 'bad' : 'very_bad';
+
+  const pros: string[] = [];
+  const cons: string[] = [];
+  if (isHighProtein) pros.push('단백질이 충분해 포만감/근육 유지에 도움이 될 수 있어요.');
+  if (!isHighCalories && calories !== null) pros.push('칼로리가 과하지 않아 무난한 선택일 수 있어요.');
+  if (pros.length < 2) pros.push('구성에 따라 균형 잡힌 한 끼로 조절할 수 있어요.');
+
+  if (isHighSodium) cons.push('나트륨이 높은 편이면 혈압/부종 관리에 불리할 수 있어요.');
+  if (isHighSugar) cons.push('당류가 높으면 혈당/체지방 관리에 불리할 수 있어요.');
+  if (isHighCalories) cons.push('칼로리가 높으면 체중 관리에 부담이 될 수 있어요.');
+  while (cons.length < 2) cons.push('정확한 성분표가 아니면 영양값 오차가 있을 수 있어요.');
+
+  const tips0 = `${dish}로 추정했고, 영양정보는 사진/일반정보를 바탕으로 한 추정치예요. (좋은 점) ${pros[0]} (아쉬운 점) ${cons[0]}`;
+
+  const ua: any = {
+    grade,
+    score100: score,
+    pros: pros.slice(0, 4),
+    cons: cons.slice(0, 4),
+    goalFit: ['목표에 맞게 양(1인분)과 소스를 조절해보세요.', '단백질/채소를 곁들이면 더 균형 잡히기 좋아요.'],
+    dietFit: ['성분표가 보이면 1회 섭취량(1인분) 기준으로 확인하는 게 가장 정확해요.', '당/나트륨이 높은 경우 빈도를 줄이거나 대안을 선택해보세요.'],
+    healthImpact: ['나트륨/당류가 높으면 장기적으로 건강에 부담이 될 수 있어요.', '균형 잡힌 식단에서 가끔 섭취하는 것은 대체로 괜찮아요.'],
+    reasons: ['모델 출력이 불완전할 수 있어 서버가 일부 보정했어요.', '정확한 성분표(OCR)가 없으면 추정치 오차가 생길 수 있어요.'],
+    warnings: Array.from(new Set([...(params.warningsFromAllergens || [])])).slice(0, 8),
+    alternatives: [],
+    tips: [tips0, '포장지 성분표가 보이도록 다시 촬영하면 정확도가 크게 올라가요.', '국물/소스는 줄이고 채소/단백질을 추가하면 더 좋아요.'],
+  };
+
+  return normalizeUserAnalysisByDishCategory(ua, dish);
 }
 
 function hasMeaningfulUserContext(ctx: any): boolean {
@@ -142,47 +464,106 @@ function buildPersonalizedUserAnalysisFallback(params: {
     else cons.push('정확한 성분표가 아니면 오차가 있을 수 있어요.');
   }
 
-  // 등급 산정(간단)
-  const conCount = cons.length;
-  const proCount = pros.length;
-  let grade: any = 'neutral';
-  if (conCount >= 3) grade = 'very_bad';
-  else if (conCount >= 2) grade = 'bad';
-  else if (conCount === 0 && proCount >= 2) grade = 'very_good';
-  else if (conCount === 0 && proCount >= 1) grade = 'good';
+  // 0~100 점수(사용자 맞춤): 매크로 + 목표/식단에 따른 연속 점수로 계산
+  let score100 = 78;
 
-  // 0~100 점수(간단): grade 기반 + 컨텍스트/경고 기반 미세 조정
-  let score100 = (() => {
-    switch (grade) {
-      case 'very_good':
-        return 90;
-      case 'good':
-        return 75;
-      case 'neutral':
-        return 60;
-      case 'bad':
-        return 40;
-      case 'very_bad':
-        return 20;
-      default:
-        return 60;
+  // 칼로리: 목표별 가중치
+  if (calories === null) {
+    score100 -= 4;
+  } else if (bodyGoal === 'diet') {
+    if (calories >= 800) score100 -= 20;
+    else if (calories >= 650) score100 -= 15;
+    else if (calories >= 500) score100 -= 8;
+    else if (calories <= 350) score100 += 5;
+  } else if (bodyGoal === 'bulking' || bodyGoal === 'lean_bulk') {
+    if (calories <= 350) score100 -= 8;
+    else if (calories >= 700) score100 += 5;
+  }
+
+  // 단백질: 벌크/고단백 목표에 강하게 반영
+  if (protein === null) {
+    score100 -= 3;
+  } else {
+    const wantsProtein = bodyGoal === 'bulking' || bodyGoal === 'lean_bulk' || healthDiet === 'high_protein';
+    if (wantsProtein) {
+      if (protein >= 35) score100 += 10;
+      else if (protein >= 25) score100 += 6;
+      else if (protein >= 18) score100 += 2;
+      else if (protein < 12) score100 -= 12;
+      else score100 -= 6;
+    } else {
+      if (protein >= 25) score100 += 4;
+      else if (protein < 10) score100 -= 5;
     }
-  })();
+  }
 
-  // 사용자 목표/식단에 대한 페널티/보너스 (과도한 단정 방지: +/- 5~15 범위)
-  if (bodyGoal === 'diet' && isHighCalories) score100 -= 10;
-  if ((bodyGoal === 'bulking' || bodyGoal === 'lean_bulk') && isLowProtein) score100 -= 8;
-  if ((bodyGoal === 'bulking' || bodyGoal === 'lean_bulk') && isHighProtein) score100 += 5;
-  if (healthDiet === 'high_protein' && isHighProtein) score100 += 5;
-  if (healthDiet === 'low_sodium' && isHighSodium) score100 -= 12;
-  if (healthDiet === 'low_carb' && isHighCarb) score100 -= 10;
-  if (healthDiet === 'low_fat' && isHighFat) score100 -= 10;
-  if (healthDiet === 'diabetic' && (isHighSugar || isHighCarb)) score100 -= 12;
+  // 나트륨
+  if (sodium === null) {
+    score100 -= 2;
+  } else if (healthDiet === 'low_sodium') {
+    if (sodium >= 1200) score100 -= 22;
+    else if (sodium >= 900) score100 -= 16;
+    else if (sodium >= 700) score100 -= 10;
+    else if (sodium <= 500) score100 += 5;
+  } else {
+    if (sodium >= 1500) score100 -= 10;
+    else if (sodium >= 1000) score100 -= 6;
+  }
 
+  // 탄수/당
+  if (healthDiet === 'low_carb') {
+    if (carbs !== null) {
+      if (carbs >= 80) score100 -= 20;
+      else if (carbs >= 60) score100 -= 14;
+      else if (carbs >= 40) score100 -= 7;
+      else score100 += 3;
+    } else {
+      score100 -= 3;
+    }
+  }
+
+  if (healthDiet === 'diabetic') {
+    if (sugar !== null) {
+      if (sugar >= 25) score100 -= 22;
+      else if (sugar >= 15) score100 -= 14;
+    } else {
+      score100 -= 3;
+    }
+    if (carbs !== null) {
+      if (carbs >= 70) score100 -= 10;
+      else if (carbs >= 55) score100 -= 6;
+    }
+  } else {
+    // 일반적인 경우에도 당/나트륨이 매우 높으면 감점
+    if (sugar !== null && sugar >= 25) score100 -= 8;
+    if (sodium !== null && sodium >= 1500) score100 -= 6;
+  }
+
+  // 지방(저지방 목표)
+  if (healthDiet === 'low_fat') {
+    if (fat !== null) {
+      if (fat >= 30) score100 -= 16;
+      else if (fat >= 20) score100 -= 10;
+      else score100 += 2;
+    } else {
+      score100 -= 3;
+    }
+  }
+
+  // 알레르기 경고(개인화)
   const allergenWarningsCount = Array.isArray(params.warningsFromAllergens) ? params.warningsFromAllergens.length : 0;
-  if (allergenWarningsCount > 0) score100 -= Math.min(20, 10 + allergenWarningsCount * 3);
+  if (allergenWarningsCount > 0) score100 -= Math.min(25, 12 + allergenWarningsCount * 4);
 
+  // 최종 정규화
   score100 = Math.max(0, Math.min(100, Math.round(score100)));
+
+  // 등급: 점수 기반
+  const grade: any =
+    score100 >= 88 ? 'very_good' :
+    score100 >= 75 ? 'good' :
+    score100 >= 60 ? 'neutral' :
+    score100 >= 45 ? 'bad' :
+    'very_bad';
 
   const atAGlance = `${dish}로 추정했고, 영양정보는 사진/일반정보를 바탕으로 한 추정치예요. (좋은 점) ${pros[0]} (아쉬운 점) ${cons[0]}`;
 
@@ -226,92 +607,34 @@ type GeminiErrorResult = {
   retryAfterSeconds?: number;
 };
 
-async function callGemini(
-  base64: string,
-  mime: string,
-  model: string,
-  apiKey: string,
-  userContext?: any,
-): Promise<any | GeminiErrorResult> {
-  // ... (기존 callGemini 로직과 동일) ...
-  // (생략: 위 코드와 동일하게 유지하세요)
-    const userContextBlock = userContext
-      ? `\n\n[사용자 컨텍스트]\n${JSON.stringify(userContext, null, 2)}\n`
-      : `\n\n[사용자 컨텍스트]\nnull\n`;
-
-    const prompt = `당신은 한국의 식품/영양 분석 전문가입니다. 이미지를 분석하여 음식/제품을 식별하고 영양 정보를 JSON으로 반환하세요.
-  
-  **응답 언어: 무조건 한국어(Korean)**
-
-  TARGET SCHEMA:
-  {
-    "dish": string|null, 
-    "brand": string|null,
-    "detections": Array<{ "label": string, "box": { "x": number, "y": number, "width": number, "height": number } }>,
-    "ingredients": string[], 
-    "allergens": string[], 
-    "estimated_macros": { "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number, "sugar_g": number, "sodium_mg": number, "cholesterol_mg": number, "saturated_fat_g": number, "trans_fat_g": number },
-    "userAnalysis": {
-      "grade": "very_good"|"good"|"neutral"|"bad"|"very_bad",
-      "score100": number,
-      "pros": string[],
-      "cons": string[],
-      "goalFit": string[],
-      "dietFit": string[],
-      "healthImpact": string[],
-      "reasons": string[],
-      "warnings": string[],
-      "alternatives": string[],
-      "tips": string[]
-    }|null,
-    "confidence": number, 
-    "notes": string
-  }
-
-    🚨 **분석 지침 (매우 중요):**
-    1. **식별 (Identify)**: 이미지 속 음식/제품의 가장 그럴듯한 이름을 정하세요. (예: "김치찌개", "신라면", "스타벅스 아메리카노")
-    2. **데이터 채우기 (가능한 한 구체적으로) - 절대 비워두지 마세요!**:
-      - **1순위 (패키지 OCR)**: 포장지의 영양성분표가 보이면 그 값을 그대로 반영하세요.
-      - **2순위 (일반 지식 기반 추정)**: 포장지 텍스트가 없거나 불명확하면, 해당 음식의 **표준 1인분 기준**으로 가장 합리적인 추정치를 채우세요.
-      - **🔥 매크로는 절대 0이나 null로 두지 마세요!** 정확한 값을 모르면 유사 음식(예: 같은 카테고리의 평균)이나 일반 상식 기반으로 합리적인 추정치를 반드시 채우세요.
-      - 예: 김치찌개 1인분 → 칼로리 ~350-450kcal, 단백질 ~20g, 탄수화물 ~30g, 지방 ~15g 정도로 추정
-    3. **알레르기/성분**: 원재료를 추정하여 알레르기 유발 가능성을 판단하세요.
-    3-1. **좌표(detections)**: 이미지 속에서 보이는 음식 구성 요소(예: 김치/고기/밥/샐러드/라면/연어/토마토 등)를 가능한 만큼 나열하고,
-      각 항목에 대해 바운딩 박스를 **정규화 좌표(0~1)** 로 제공하세요.
-      - label은 **반드시 한국어 명사**로 짧게 쓰세요. (예: "연어", "토마토", "밥", "김치")
-      - x, y: 박스의 좌상단 좌표(0~1)
-      - width, height: 박스의 너비/높이(0~1)
-      - 박스는 이미지 영역을 벗어나면 안 됩니다.
-      - 자신 없으면 빈 배열 []로 두되, 가능한 한 채우세요.
-    4. **Notes**: 영양값이 (a) 포장지 OCR 기반인지, (b) 일반 지식 기반 추정인지, (c) 혼합인지 반드시 명시하세요.
-    5. **개인화(userAnalysis)**:
-      - 사용자 컨텍스트가 있으면 반드시 반영하여 grade/reasons/warnings/alternatives/tips를 작성하세요.
-      - 컨텍스트가 없으면 userAnalysis는 null로 두세요.
-      - **score100(0~100)**: 사용자 컨텍스트를 반영한 “식단 점수”를 0~100 정수로 작성하세요. (0=매우 부적합, 100=매우 적합)
-      - pros/cons/goalFit/dietFit/healthImpact는 각각 최소 2개 이상 채우세요. (짧고 명확하게)
-      - 특히 **tips[0]는 앱의 “한눈에 보기”에 그대로 노출됩니다.** 아래 형식을 강제합니다:
-       - 2~3문장, 한국어, 짧고 직관적
-       - 반드시 포함: (1) 음식 이름을 ~로 추정했다는 말, (2) 영양정보가 사진/일반정보 기반 “추정치”라는 고지, (3) 사용자 컨텍스트를 반영한 **좋은 점 1개 + 아쉬운 점 1개**
-       - 예: "이 음식은 ‘OOO’로 추정했고, 영양정보는 사진/일반정보를 바탕으로 한 추정치예요. (좋은 점) … (아쉬운 점) …"
-    6. **출력은 JSON만**: 설명 문장/마크다운/코드펜스 없이 JSON 객체 1개만 출력하세요.
-  ${userContextBlock}
-  `;
-
+async function callGeminiVision(params: {
+  base64: string;
+  mime: string;
+  model: string;
+  apiKey: string;
+  prompt: string;
+}): Promise<any | GeminiErrorResult> {
+  const { base64, mime, model, apiKey, prompt } = params;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  
   const body = {
-    contents: [{ parts: [ { text: prompt }, { inline_data: { mime_type: mime || 'image/jpeg', data: base64 } } ] }],
+    contents: [
+      {
+        parts: [
+          { text: prompt },
+          { inline_data: { mime_type: mime || 'image/jpeg', data: base64 } },
+        ],
+      },
+    ],
     safetySettings: [
-        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
     ],
     generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
   };
 
   const maxAttempts = 3;
-
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const res = await fetch(url, {
       method: 'POST',
@@ -333,9 +656,78 @@ async function callGemini(
 
     if (res.ok && !json?.error) {
       const text: string | undefined = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) {
-        return { error: 'No text generated.', status: res.status };
+      if (!text) return { error: 'No text generated.', status: res.status };
+      return parseJsonBlock(text);
+    }
+
+    const isRateLimited = res.status === 429;
+    const isRetryable = isRateLimited || res.status === 503;
+    const hasMoreAttempts = attempt < maxAttempts - 1;
+
+    if (isRetryable && hasMoreAttempts) {
+      const baseDelayMs = 600;
+      const expo = baseDelayMs * Math.pow(2, attempt);
+      const jitter = Math.floor(Math.random() * 250);
+      const delayMs = Number.isFinite(retryAfterSeconds)
+        ? Math.max(0, (retryAfterSeconds as number) * 1000)
+        : expo + jitter;
+
+      await sleep(delayMs);
+      continue;
+    }
+
+    const errDetail = json?.error ? JSON.stringify(json.error) : rawText || 'Unknown error';
+    return {
+      error: `Gemini API Error (${res.status}): ${errDetail}`,
+      status: res.status,
+      retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined,
+    };
+  }
+
+  return { error: 'Gemini API Error: exceeded retry attempts.', status: 429 };
+}
+
+async function callGeminiText(params: {
+  model: string;
+  apiKey: string;
+  prompt: string;
+}): Promise<any | GeminiErrorResult> {
+  const { model, apiKey, prompt } = params;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    safetySettings: [
+      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+    ],
+    generationConfig: { temperature: 0.2, maxOutputTokens: 768 },
+  };
+
+  const maxAttempts = 3;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const retryAfterHeader = res.headers.get('retry-after');
+    const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : undefined;
+
+    const rawText = await res.text().catch(() => '');
+    const json = (() => {
+      try {
+        return rawText ? JSON.parse(rawText) : {};
+      } catch {
+        return { error: 'JSON Parse Error', raw: rawText };
       }
+    })();
+
+    if (res.ok && !json?.error) {
+      const text: string | undefined = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) return { error: 'No text generated.', status: res.status };
       return parseJsonBlock(text);
     }
 
@@ -379,13 +771,23 @@ serve(async (req: Request) => {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const base64 = encodeBase64(bytes);
     const apiKey = Deno.env.get('GEMINI_API_KEY');
-    const model = Deno.env.get('GEMINI_MODEL') || 'gemini-1.5-flash'; 
+    // Prefer per-modality model settings; fall back to GEMINI_MODEL; then sensible defaults.
+    const visionModel = Deno.env.get('GEMINI_IMAGE_MODEL') || Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash';
+    const textModel = Deno.env.get('GEMINI_TEXT_MODEL') || Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash-lite';
+
+    // Debug logging
+    console.log('[DEBUG] API Key present:', !!apiKey);
+    console.log('[DEBUG] Vision Model:', visionModel);
+    console.log('[DEBUG] Text Model:', textModel);
+    console.log('[DEBUG] Image size (bytes):', bytes.length);
 
     let geminiData: any = null;
     let geminiNotice = "";
+    let promptDebug: any = null;
 
     // 1. Gemini 호출
     if (!apiKey) {
+      console.error('[ERROR] GEMINI_API_KEY is not set');
       return new Response(
         JSON.stringify({ ok: false, message: '서버 설정 오류: GEMINI_API_KEY가 없습니다.' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
@@ -403,11 +805,106 @@ serve(async (req: Request) => {
       }
     })();
 
-    geminiData = await callGemini(base64, file.type || 'image/jpeg', model, apiKey, userContext);
+    const defaultImagePrompt = `당신은 한국의 식품/영양 분석 전문가입니다. 이미지를 분석하여 음식/제품을 식별하고 영양 정보를 JSON으로 반환하세요.
+
+**응답 언어: 무조건 한국어(Korean)**
+
+TARGET SCHEMA:
+{
+  "dish": string|null,
+  "brand": string|null,
+  "detections": Array<{ "label": string, "box": { "x": number, "y": number, "width": number, "height": number } }>,
+  "ingredients": string[],
+  "allergens": string[],
+  "estimated_macros": { "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number, "sugar_g": number, "sodium_mg": number, "cholesterol_mg": number, "saturated_fat_g": number, "trans_fat_g": number },
+  "confidence": number,
+  "notes": string
+}
+
+🚨 **분석 지침 (매우 중요):**
+1. **식별 (Identify)**: 이미지 속 음식/제품의 가장 그럴듯한 이름을 정하세요. (예: "김치찌개", "신라면", "스타벅스 아메리카노")
+2. **데이터 채우기 (가능한 한 구체적으로) - 절대 비워두지 마세요!**:
+  - **1순위 (패키지 OCR)**: 포장지의 영양성분표가 보이면 그 값을 그대로 반영하세요.
+  - **2순위 (일반 지식 기반 추정)**: 포장지 텍스트가 없거나 불명확하면, 해당 음식의 **표준 1인분 기준**으로 가장 합리적인 추정치를 채우세요.
+  - **🔥 매크로는 절대 0이나 null로 두지 마세요!** 정확한 값을 모르면 유사 음식(예: 같은 카테고리의 평균)이나 일반 상식 기반으로 합리적인 추정치를 반드시 채우세요.
+3. **알레르기/성분**: 원재료를 추정하여 알레르기 유발 가능성을 판단하세요.
+4. **좌표(detections)**: 이미지 속에서 보이는 음식 구성 요소를 가능한 만큼 나열하고, 각 항목 바운딩 박스를 **정규화 좌표(0~1)** 로 제공하세요.
+5. **Notes**: 영양값이 (a) 포장지 OCR 기반인지, (b) 일반 지식 기반 추정인지, (c) 혼합인지 명시하세요.
+6. **출력은 JSON만**: 설명 문장/마크다운/코드펜스 없이 JSON 객체 1개만 출력하세요.
+`;
+
+    const debugPrompts = ['1', 'true', 'yes', 'on'].includes(
+      String(Deno.env.get('DEBUG_PROMPTS') || '').toLowerCase(),
+    );
+
+    const imagePromptFromEnv = readPromptFromEnvWithSource('GEMINI_IMAGE_PROMPT', 'GEMINI_IMAGE_PROMPT_B64');
+    const imagePrompt = imagePromptFromEnv.text || defaultImagePrompt;
+    const imagePromptSource: 'default' | 'env_direct' | 'env_b64' = imagePromptFromEnv.text
+      ? imagePromptFromEnv.source
+      : 'default';
+
+    let imagePromptSha256: string | undefined;
+    if (debugPrompts) {
+      imagePromptSha256 = await sha256Hex(imagePrompt);
+      promptDebug = {
+        imagePrompt: {
+          source: imagePromptSource,
+          length: imagePrompt.length,
+          sha256: imagePromptSha256,
+        },
+        request: {
+          hasUserContextField: Boolean(userContextRaw),
+          userContextRawType: typeof (userContextRaw as any),
+          userContextRawPreview:
+            typeof userContextRaw === 'string'
+              ? userContextRaw.slice(0, 200)
+              : userContextRaw
+                ? '[non-string]'
+                : null,
+          userContextParsed: Boolean(userContext && typeof userContext === 'object'),
+          userContextKeys: userContext && typeof userContext === 'object' ? Object.keys(userContext).slice(0, 20) : [],
+          hasMeaningfulUserContext: hasMeaningfulUserContext(userContext),
+        },
+      };
+    }
+
+    console.log('[DEBUG] Calling Gemini Vision API...');
+    console.log('[DEBUG] Model:', visionModel);
+    console.log('[DEBUG] Prompt length:', imagePrompt.length);
+    console.log('[DEBUG] Prompt source:', imagePromptSource);
+    if (debugPrompts) {
+      console.log('[DEBUG] Prompt sha256:', imagePromptSha256);
+    }
+
+    geminiData = await callGeminiVision({
+      base64,
+      mime: file.type || 'image/jpeg',
+      model: visionModel,
+      apiKey,
+      prompt: imagePrompt,
+    });
+
+    console.log('[DEBUG] Gemini Vision response received');
+    if (geminiData) {
+      console.log('[DEBUG] Response has error:', !!geminiData.error);
+      console.log('[DEBUG] Response data:', JSON.stringify(geminiData).substring(0, 300));
+    }
 
     if (geminiData?.error) {
+      console.error('[ERROR] Gemini API Error:', geminiData.error);
+      console.error('[ERROR] Status:', geminiData.status);
+      
       const status = typeof geminiData.status === 'number' ? geminiData.status : 502;
       const is429 = status === 429;
+
+      const debugEnabled = ['1', 'true', 'yes', 'on'].includes(String(Deno.env.get('DEBUG_GEMINI_ERRORS') || '').toLowerCase());
+
+      const debugObj = (debugEnabled || debugPrompts)
+        ? {
+            ...(debugEnabled ? { geminiError: String(geminiData.error || '') } : null),
+            ...(debugPrompts ? { prompts: promptDebug } : null),
+          }
+        : undefined;
 
       return new Response(
         JSON.stringify({
@@ -416,6 +913,9 @@ serve(async (req: Request) => {
           message: is429
             ? '요청이 많아서 AI 분석이 지연되고 있어요. 잠시 후 다시 시도해주세요. (Gemini 429)'
             : 'AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+          model: visionModel,
+          textModel,
+          debug: debugObj,
           retryAfterSeconds: geminiData.retryAfterSeconds,
         }),
         {
@@ -512,36 +1012,10 @@ serve(async (req: Request) => {
       }
     }
 
-    // 3. 매크로 최종 보정 (Gemini/DB 모두 실패 시 카테고리 기반 폴백)
-    if (geminiData && geminiData.estimated_macros) {
-      const macros = geminiData.estimated_macros;
-      const hasMacros = (macros.calories > 0 || macros.protein_g > 0 || macros.carbs_g > 0 || macros.fat_g > 0);
-      
-      if (!hasMacros) {
-        // 음식 카테고리 추정 (간단한 키워드 기반)
-        const dishName = (geminiData.dish || '').toLowerCase();
-        let defaultMacros = { calories: 300, protein_g: 15, carbs_g: 40, fat_g: 10, sugar_g: 5, sodium_mg: 600, cholesterol_mg: 30, saturated_fat_g: 3, trans_fat_g: 0 };
-        
-        if (dishName.includes('밥') || dishName.includes('덮밥') || dishName.includes('비빔밥')) {
-          defaultMacros = { calories: 550, protein_g: 18, carbs_g: 85, fat_g: 12, sugar_g: 8, sodium_mg: 800, cholesterol_mg: 40, saturated_fat_g: 4, trans_fat_g: 0 };
-        } else if (dishName.includes('라면') || dishName.includes('면')) {
-          defaultMacros = { calories: 500, protein_g: 12, carbs_g: 75, fat_g: 15, sugar_g: 5, sodium_mg: 2000, cholesterol_mg: 20, saturated_fat_g: 7, trans_fat_g: 0 };
-        } else if (dishName.includes('찌개') || dishName.includes('국') || dishName.includes('탕')) {
-          defaultMacros = { calories: 400, protein_g: 22, carbs_g: 30, fat_g: 18, sugar_g: 6, sodium_mg: 1200, cholesterol_mg: 50, saturated_fat_g: 6, trans_fat_g: 0 };
-        } else if (dishName.includes('치킨') || dishName.includes('닭')) {
-          defaultMacros = { calories: 700, protein_g: 45, carbs_g: 35, fat_g: 38, sugar_g: 8, sodium_mg: 1400, cholesterol_mg: 120, saturated_fat_g: 10, trans_fat_g: 0 };
-        } else if (dishName.includes('샐러드')) {
-          defaultMacros = { calories: 200, protein_g: 8, carbs_g: 20, fat_g: 8, sugar_g: 10, sodium_mg: 400, cholesterol_mg: 15, saturated_fat_g: 2, trans_fat_g: 0 };
-        } else if (dishName.includes('피자') || dishName.includes('버거') || dishName.includes('햄버거')) {
-          defaultMacros = { calories: 650, protein_g: 25, carbs_g: 60, fat_g: 32, sugar_g: 12, sodium_mg: 1300, cholesterol_mg: 70, saturated_fat_g: 12, trans_fat_g: 0.5 };
-        } else if (dishName.includes('빵') || dishName.includes('케이크') || dishName.includes('도넛')) {
-          defaultMacros = { calories: 350, protein_g: 6, carbs_g: 50, fat_g: 14, sugar_g: 20, sodium_mg: 300, cholesterol_mg: 25, saturated_fat_g: 7, trans_fat_g: 0 };
-        }
-        
-        geminiData.estimated_macros = defaultMacros;
-        geminiNotice += ' [서버 폴백: 매크로를 카테고리별 평균치로 추정했어요.]';
-      }
-    }
+    // 3. 매크로 최종 보정 (모델이 비우거나 0으로 준 경우에도 항상 폴백 적용)
+    const geminiNoticeRef = { value: geminiNotice };
+    ensureEstimatedMacrosInPlace(geminiData, geminiNoticeRef);
+    geminiNotice = geminiNoticeRef.value;
 
     // 4. 최종 데이터 반환 구성
     // 사용자 알레르기(컨텍스트)가 있으면 warnings에 보정(모델 누락 방지)
@@ -555,20 +1029,109 @@ serve(async (req: Request) => {
       .filter(a => modelAllergens.some((m: string) => m.includes(a) || a.includes(m)))
       .map(a => `알레르기 주의: ${a}`);
 
+    // 4-1. 사용자 맞춤 분석(userAnalysis)은 텍스트 모델(Lite)로 별도 생성
+    const hasCtx = hasMeaningfulUserContext(userContext);
+    if (hasCtx && apiKey) {
+      const defaultAssistantPrompt = `당신은 한국어로 답하는 친절한 영양 상담/비서입니다.
+
+아래 [분석 결과]와 [사용자 컨텍스트]를 바탕으로, 오직 JSON 객체 1개만 출력하세요.
+반드시 userAnalysis 스키마만 반환해야 합니다(설명/마크다운/코드펜스 금지).
+
+TARGET SCHEMA:
+{
+  "grade": "very_good"|"good"|"neutral"|"bad"|"very_bad",
+  "score100": number,
+  "pros": string[],
+  "cons": string[],
+  "goalFit": string[],
+  "dietFit": string[],
+  "healthImpact": string[],
+  "reasons": string[],
+  "warnings": string[],
+  "alternatives": string[],
+  "tips": string[]
+}
+
+규칙:
+- score100은 0~100 정수
+- pros/cons/goalFit/dietFit/healthImpact는 각각 최소 2개
+- tips[0]는 2~3문장, 한국어, 짧고 직관적, 반드시 포함: (1) 음식 이름을 ~로 추정, (2) 영양정보는 “추정치” 고지, (3) 좋은 점 1개 + 아쉬운 점 1개
+
+[분석 결과]
+${JSON.stringify(
+  {
+    dish: geminiData?.dish ?? null,
+    brand: geminiData?.brand ?? null,
+    estimated_macros: geminiData?.estimated_macros ?? null,
+    ingredients: Array.isArray(geminiData?.ingredients) ? geminiData.ingredients : [],
+    allergens: Array.isArray(geminiData?.allergens) ? geminiData.allergens : [],
+    notes: geminiData?.notes ?? geminiNotice,
+  },
+  null,
+  2,
+)}
+
+[사용자 컨텍스트]
+${JSON.stringify(userContext, null, 2)}
+`;
+
+      const assistantPromptFromEnv = readPromptFromEnvWithSource(
+        'GEMINI_ASSISTANT_PROMPT',
+        'GEMINI_ASSISTANT_PROMPT_B64',
+      );
+      const assistantPrompt = assistantPromptFromEnv.text || defaultAssistantPrompt;
+      const assistantPromptSource: 'default' | 'env_direct' | 'env_b64' = assistantPromptFromEnv.text
+        ? assistantPromptFromEnv.source
+        : 'default';
+
+      let assistantPromptSha256: string | undefined;
+      if (debugPrompts) {
+        assistantPromptSha256 = await sha256Hex(assistantPrompt);
+        promptDebug = promptDebug || {};
+        promptDebug.assistantPrompt = {
+          source: assistantPromptSource,
+          length: assistantPrompt.length,
+          sha256: assistantPromptSha256,
+        };
+      }
+
+      console.log('[DEBUG] Assistant prompt length:', assistantPrompt.length);
+      console.log('[DEBUG] Assistant prompt source:', assistantPromptSource);
+      if (debugPrompts) {
+        console.log('[DEBUG] Assistant prompt sha256:', assistantPromptSha256);
+      }
+
+      const uaResult = await callGeminiText({
+        model: textModel,
+        apiKey,
+        prompt: assistantPrompt,
+      });
+
+      if (uaResult && !uaResult.error) {
+        geminiData.userAnalysis = uaResult;
+      }
+    }
+
     const mergedUserAnalysis = (() => {
       const ua = geminiData?.userAnalysis;
-      const hasCtx = hasMeaningfulUserContext(userContext);
 
-      // 1) 모델이 userAnalysis를 아예 안 준 경우: 컨텍스트가 있으면 서버에서 폴백 생성
+      // 1) 모델이 userAnalysis를 아예 안 준 경우: 컨텍스트가 있으면 personalized, 없으면 generic 폴백
       if (!ua) {
-        if (!hasCtx) return null;
-        return buildPersonalizedUserAnalysisFallback({
-          dish: geminiData?.dish ?? null,
-          estimated_macros: geminiData?.estimated_macros,
-          modelAllergens,
-          userContext,
-          warningsFromAllergens,
-        });
+        const fallback = hasCtx
+          ? buildPersonalizedUserAnalysisFallback({
+              dish: geminiData?.dish ?? null,
+              estimated_macros: geminiData?.estimated_macros,
+              modelAllergens,
+              userContext,
+              warningsFromAllergens,
+            })
+          : buildGenericUserAnalysisFallback({
+              dish: geminiData?.dish ?? null,
+              estimated_macros: geminiData?.estimated_macros,
+              warningsFromAllergens,
+            });
+
+        return normalizeUserAnalysisByDishCategory(fallback, geminiData?.dish ?? null);
       }
 
       // 2) 모델이 줬지만 내용이 빈 경우: tips[0]/reasons를 보정
@@ -585,12 +1148,9 @@ serve(async (req: Request) => {
           warningsFromAllergens,
         });
 
-        // score100이 없으면 서버 폴백 값으로 보정
-        const rawScore = (next as any)?.score100;
-        const scoreNumeric = typeof rawScore === 'number' ? rawScore : typeof rawScore === 'string' ? Number(rawScore) : NaN;
-        if (!Number.isFinite(scoreNumeric)) {
-          (next as any).score100 = fallback.score100;
-        }
+        // 사용자 컨텍스트가 있으면 점수/등급은 서버 계산값으로 항상 고정(모델이 75로 고정 출력하는 문제 방지)
+        (next as any).score100 = fallback.score100;
+        (next as any).grade = fallback.grade;
 
         const tips = Array.isArray(next.tips) ? next.tips.filter((x: any) => typeof x === 'string' && x.trim()) : [];
         if (tips.length === 0) {
@@ -622,16 +1182,51 @@ serve(async (req: Request) => {
         if (healthImpact.length === 0) (next as any).healthImpact = fallback.healthImpact;
       }
 
+      // 컨텍스트가 없거나 모델이 이상한 대안을 준 경우에도 음식 카테고리에 맞게 대안 보정
+      normalizeUserAnalysisByDishCategory(next, geminiData?.dish ?? null);
+
+      // tips[0]에 음식명이 아예 없으면 폴백 tips[0]로 보정(가끔 "이 음식 로" 같은 형태 방지)
+      try {
+        const dishStr = typeof geminiData?.dish === 'string' ? geminiData.dish.trim() : '';
+        const t0 = Array.isArray(next.tips) && typeof next.tips[0] === 'string' ? next.tips[0] : '';
+        if (dishStr && t0 && !t0.includes(dishStr)) {
+          const generic = buildGenericUserAnalysisFallback({
+            dish: dishStr,
+            estimated_macros: geminiData?.estimated_macros,
+            warningsFromAllergens,
+          });
+          next.tips = [generic.tips[0], ...(Array.isArray(next.tips) ? next.tips.slice(0, 5) : [])];
+        }
+      } catch {
+        // ignore
+      }
+
       return next;
+    })();
+
+    const normalizedDish = (() => {
+      const raw = (geminiData as any)?.dish;
+      if (typeof raw === 'string' && raw.trim()) return raw.trim();
+      if (raw && typeof raw === 'object') {
+        const name = (raw as any)?.name;
+        if (typeof name === 'string' && name.trim()) return name.trim();
+      }
+      const labels = Array.isArray((geminiData as any)?.detections)
+        ? (geminiData as any).detections
+            .map((d: any) => (typeof d?.label === 'string' ? d.label.trim() : (typeof d?.name === 'string' ? d.name.trim() : '')))
+            .filter((s: string) => Boolean(s))
+        : [];
+      return labels.length > 0 ? labels[0] : null;
     })();
 
     const data = {
       kind: 'food',
       version: 'v12-personalized-usercontext',
-      model,
+      model: visionModel,
+      textModel,
       source,
       reference_standard: referenceStandard,
-      dish: geminiData?.dish ?? null,
+      dish: normalizedDish,
       
       
       // 🚨 [핵심 수정] 여기에 brand 필드를 반드시 포함시켜야 프론트엔드로 나갑니다.
@@ -663,7 +1258,7 @@ serve(async (req: Request) => {
 
       ingredients: Array.isArray(geminiData?.ingredients) ? geminiData.ingredients : [],
       allergens: Array.isArray(geminiData?.allergens) ? geminiData.allergens : [],
-      estimated_macros: geminiData?.estimated_macros || { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, sugar_g: 0, sodium_mg: 0, cholesterol_mg: 0, saturated_fat_g: 0, trans_fat_g: 0 },
+      estimated_macros: geminiData?.estimated_macros,
       userAnalysis: mergedUserAnalysis,
       confidence: typeof geminiData?.confidence === 'number' ? geminiData.confidence : 0,
       notes: geminiData?.notes || geminiNotice,
@@ -671,8 +1266,14 @@ serve(async (req: Request) => {
       geminiUsed: Boolean(apiKey),
     };
 
-    return new Response(JSON.stringify({ ok: true, data }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    return new Response(
+      JSON.stringify({ ok: true, data, debug: debugPrompts ? { prompts: promptDebug } : undefined }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
   } catch (e) {
-    return new Response(JSON.stringify({ ok: false, message: String(e) }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    return new Response(
+      JSON.stringify({ ok: false, message: String(e) }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
   }
 });

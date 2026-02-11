@@ -8,7 +8,8 @@ import { AppIcon } from '../components/ui/AppIcon';
 // Screens
 import ScanScreen from '../screens/main/ScanScreen';
 import MealScreen from '../screens/main/MealScreen';
-import HistoryScreen from '../screens/main/HistoryScreen';
+import ChatScreen from '../screens/main/ChatScreen';
+import CalendarScreen from '../screens/main/CalendarScreen.tsx';
 import ProfileScreen from '../screens/main/ProfileScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -57,11 +58,19 @@ export default function MainTabNavigator() {
         }}
       />
       <Tab.Screen
-        name="History"
-        component={HistoryScreen}
+        name="Chat"
+        component={ChatScreen}
         options={{
-          tabBarLabel: '히스토리',
-          tabBarIcon: ({ color }) => <AppIcon name="history" color={color} size={24} />,
+          tabBarLabel: '챗봇',
+          tabBarIcon: ({ color }) => <AppIcon name="smart-toy" color={color} size={24} />,
+        }}
+      />
+      <Tab.Screen
+        name="Calendar"
+        component={CalendarScreen}
+        options={{
+          tabBarLabel: '캘린더',
+          tabBarIcon: ({ color }) => <AppIcon name="calendar-today" color={color} size={24} />,
         }}
       />
       <Tab.Screen

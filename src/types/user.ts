@@ -33,7 +33,9 @@ export interface UserProfile {
   disliked?: string[];
   
   targetCalories?: number;
+  targetCarbs?: number;
   targetProtein?: number;
+  targetFat?: number;
   currentWeight?: number;
   targetWeight?: number;
   height?: number;
@@ -43,6 +45,20 @@ export interface UserProfile {
   onboardingCompleted: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ManualMealLog {
+  id: string;
+  userId: string;
+  date: string; // YYYY-MM-DD (local)
+  mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  foodName?: string;
+  calories: number;
+  carbs_g: number;
+  protein_g: number;
+  fat_g: number;
+  imageUri?: string;
+  timestamp: string; // ISO
 }
 
 // 음식 적합도 등급

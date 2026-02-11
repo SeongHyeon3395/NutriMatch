@@ -82,6 +82,12 @@ serve(async (req: Request) => {
     } catch {
       // ignore
     }
+    try {
+      // 최근 만든 식단(식단 생성 기록)도 초기화
+      await supabase.from('meal_plan_logs').delete().eq('user_id', userId);
+    } catch {
+      // ignore
+    }
 
     // Reset body info and force onboarding again (step 4)
     try {

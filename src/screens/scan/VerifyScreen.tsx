@@ -24,7 +24,7 @@ import { ensureUserAnalysis } from '../../services/userAnalysis';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { Card } from '../../components/ui/Card';
 import { MONTHLY_SCAN_LIMIT } from '../../config';
-import { getMonthlyScanCountRemote, getSessionUserId } from '../../services/userData';
+import { consumeMonthlyScanRemote, getSessionUserId, refundLastScanRemote } from '../../services/userData';
 
 function tryGetImageResizer(): any | null {
   try {
@@ -60,6 +60,7 @@ export default function VerifyScreen() {
   const route = useRoute();
   const { imageUri, autoAnalyze } = route.params as { imageUri: string; autoAnalyze?: boolean };
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const analyzeInFlightRef = useRef(false);
   const profile = useUserStore(state => state.profile);
   const { alert } = useAppAlert();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -75,23 +76,29 @@ export default function VerifyScreen() {
   const baseTutorialPhaseKey = useMemo(() => '@nutrimatch_scan_tutorial_phase', []);
   const [showVerifyTutorial, setShowVerifyTutorial] = useState(false);
 
-  const ensureScanQuotaOrAlert = async () => {
+  const consumeScanOrAlert = async () => {
     const userId = await getSessionUserId().catch(() => null);
     if (!userId) return true;
 
     try {
-      const used = await getMonthlyScanCountRemote();
-      if (typeof used === 'number' && used >= MONTHLY_SCAN_LIMIT) {
+      await consumeMonthlyScanRemote(MONTHLY_SCAN_LIMIT);
+      return true;
+    } catch (e: any) {
+      const msg = String(e?.message || '');
+      if (/SCAN_LIMIT_REACHED/i.test(msg)) {
         alert({
           title: '스캔 기회 소진',
           message: `이번 달 스캔 기회를 모두 사용했어요. (${MONTHLY_SCAN_LIMIT}회/월)`,
         });
         return false;
       }
-    } catch {
-      // ignore
+      // 네트워크/서버 오류: 보수적으로 막고 사용자에게 알림
+      alert({
+        title: '스캔 처리 실패',
+        message: '스캔 횟수 처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.',
+      });
+      return false;
     }
-    return true;
   };
 
   const analyzeButtonAnchorRef = useRef<View | null>(null);
@@ -123,9 +130,30 @@ export default function VerifyScreen() {
         });
       }
 
+      // "건너뛰기"를 눌렀다면 촬영/분석 이후에도 절대 튜토리얼이 나오지 않도록,
+      // phase 뿐 아니라 seen 값도 함께 확인합니다(레이스 컨디션 방어).
+      const scopedSeenKey = userId ? `@nutrimatch_scan_tutorial_seen:${userId}` : null;
+      const scopedPhaseKey = userId ? `@nutrimatch_scan_tutorial_phase:${userId}` : null;
+      const seenKeyToRead = scopedSeenKey ?? baseTutorialSeenKey;
+      const phaseKeyToRead = scopedPhaseKey ?? baseTutorialPhaseKey;
+
       try {
-        const phase = await AsyncStorage.getItem(tutorialKeys.phase);
-        if (mounted) setShowVerifyTutorial(phase === 'verify');
+        const [seen, phase] = await Promise.all([
+          AsyncStorage.getItem(seenKeyToRead),
+          AsyncStorage.getItem(phaseKeyToRead),
+        ]);
+        if (!mounted) return;
+        if (seen === '1') {
+          setShowVerifyTutorial(false);
+          // 혹시 남아있는 phase는 정리(다시 뜨는 것 방지)
+          try {
+            await AsyncStorage.removeItem(phaseKeyToRead);
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        setShowVerifyTutorial(phase === 'verify');
       } catch {
         if (mounted) setShowVerifyTutorial(false);
       }
@@ -138,10 +166,18 @@ export default function VerifyScreen() {
   const finalizeTutorial = async () => {
     setShowVerifyTutorial(false);
     try {
-      await AsyncStorage.setItem(tutorialKeys.seen, '1');
-      await AsyncStorage.removeItem(tutorialKeys.phase);
+      const userId = await getSessionUserId().catch(() => null);
+      const scopedSeenKey = userId ? `@nutrimatch_scan_tutorial_seen:${userId}` : null;
+      const scopedPhaseKey = userId ? `@nutrimatch_scan_tutorial_phase:${userId}` : null;
+
       await AsyncStorage.setItem(baseTutorialSeenKey, '1');
       await AsyncStorage.removeItem(baseTutorialPhaseKey);
+      if (scopedSeenKey) await AsyncStorage.setItem(scopedSeenKey, '1');
+      if (scopedPhaseKey) await AsyncStorage.removeItem(scopedPhaseKey);
+
+      // 화면 상태에서 쓰는 현재 키도 함께 정리
+      await AsyncStorage.setItem(tutorialKeys.seen, '1');
+      await AsyncStorage.removeItem(tutorialKeys.phase);
     } catch {
       // ignore
     }
@@ -152,13 +188,21 @@ export default function VerifyScreen() {
   };
 
   const handleAnalyze = async () => {
-    const ok = await ensureScanQuotaOrAlert();
-    if (!ok) return;
+    if (analyzeInFlightRef.current) return;
+    analyzeInFlightRef.current = true;
+
+    const ok = await consumeScanOrAlert();
+    if (!ok) {
+      analyzeInFlightRef.current = false;
+      return;
+    }
 
     setIsAnalyzing(true);
+    console.log('[VerifyScreen] 분석 시작');
     try {
       // Enforce max 1024 only at upload/analyze time.
       let uploadUri = imageUri;
+      console.log('[VerifyScreen] 이미지 URI:', uploadUri);
       const size = await getImageSizeSafe(imageUri);
       if (size && (size.width > 1024 || size.height > 1024)) {
         const Resizer = tryGetImageResizer();
@@ -182,6 +226,7 @@ export default function VerifyScreen() {
         }
       }
 
+      console.log('[VerifyScreen] analyzeFoodImage 호출 시작');
       const response = await analyzeFoodImage(
         uploadUri,
         profile
@@ -204,10 +249,33 @@ export default function VerifyScreen() {
       }
 
       const data = response.data;
+
+      const resolveDishName = (d: any): string => {
+        const dish = d?.dish;
+        if (typeof dish === 'string' && dish.trim()) return dish.trim();
+        if (dish && typeof dish === 'object') {
+          const name = (dish as any)?.name;
+          if (typeof name === 'string' && name.trim()) return name.trim();
+        }
+        const dishName = d?.dishName;
+        if (typeof dishName === 'string' && dishName.trim()) return dishName.trim();
+
+        const brand = d?.brand;
+        const fallbackLabels = Array.isArray(d?.detections)
+          ? d.detections
+              .map((x: any) => (typeof x?.label === 'string' ? x.label.trim() : ''))
+              .filter((x: string) => Boolean(x))
+          : [];
+        if (typeof brand === 'string' && brand.trim() && fallbackLabels.length > 0) {
+          return `${brand.trim()} ${fallbackLabels[0]}`;
+        }
+        if (fallbackLabels.length > 0) return fallbackLabels[0];
+        return '알 수 없는 음식';
+      };
       
       // Map API response to FoodAnalysis type
       const analysis: FoodAnalysis = {
-        dishName: data.dish || '알 수 없는 음식',
+        dishName: resolveDishName(data),
         description: data.notes || '분석된 정보가 없습니다.',
         categories: [], 
         confidence: data.confidence || 0,
@@ -241,13 +309,41 @@ export default function VerifyScreen() {
         analysis,
       });
     } catch (error: any) {
-      console.error(error);
+      console.error('[VerifyScreen] AI 분석 오류:', error);
+      console.error('[VerifyScreen] 오류 상세:', JSON.stringify(error, null, 2));
+      
+      // AI 분석 실패 시 스캔 횟수 복구
+      let refundSuccess = false;
+      try {
+        const result = await refundLastScanRemote();
+        refundSuccess = Boolean(result);
+        if (refundSuccess) {
+          console.log('[VerifyScreen] 스캔 횟수 복구 완료');
+        }
+      } catch (refundError: any) {
+        console.error('[VerifyScreen] 스캔 횟수 복구 실패:', refundError);
+        // PGRST202 에러는 함수가 없는 경우 (마이그레이션 미적용)
+        const isNotFoundError = refundError?.message?.includes('PGRST202') || 
+                                refundError?.code === 'PGRST202';
+        if (isNotFoundError) {
+          console.warn('[VerifyScreen] refund_last_scan 함수가 데이터베이스에 없습니다. 마이그레이션을 적용해주세요.');
+        }
+      }
+      
+      // 더 자세한 에러 정보 표시
+      const errorDetails = error?.response?.data || error?.data || {};
+      const errorMsg = error.message || error?.toString() || '음식 분석 중 오류가 발생했습니다.';
+      const fullMessage = refundSuccess 
+        ? `${errorMsg}\n\n스캔 횟수는 복구되었어요.`
+        : `${errorMsg}\n\n${JSON.stringify(errorDetails).substring(0, 200)}`;
+      
       alert({
-        title: '분석 실패',
-        message: error.message || '음식 분석 중 오류가 발생했습니다.',
+        title: 'AI 분석 중 오류',
+        message: fullMessage,
       });
     } finally {
       setIsAnalyzing(false);
+      analyzeInFlightRef.current = false;
     }
   };
 
@@ -267,9 +363,6 @@ export default function VerifyScreen() {
   }, [autoAnalyze]);
 
   const handleAnalyzeFromTutorial = async () => {
-    const ok = await ensureScanQuotaOrAlert();
-    if (!ok) return;
-
     if (showVerifyTutorial) {
       await finalizeTutorial();
     }

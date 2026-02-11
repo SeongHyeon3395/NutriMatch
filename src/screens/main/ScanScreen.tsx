@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, StatusBar, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -99,11 +99,20 @@ export default function ScanScreen() {
   const finalizeTutorial = async () => {
     setShowTutorial(false);
     try {
-      await AsyncStorage.setItem(tutorialKeys.seen, '1');
-      await AsyncStorage.removeItem(tutorialKeys.phase);
-      // legacy/base 키도 같이 정리
+      const userId = await getSessionUserId().catch(() => null);
+      const scopedSeenKey = userId ? `@nutrimatch_scan_tutorial_seen:${userId}` : null;
+      const scopedPhaseKey = userId ? `@nutrimatch_scan_tutorial_phase:${userId}` : null;
+
+      // 계정 키 + 레거시(base) 키를 동시에 기록해서, "아주 빠르게 건너뛰기"를 눌러도
+      // 이후(촬영/분석 포함) 튜토리얼이 다시 뜨지 않게 합니다.
       await AsyncStorage.setItem(baseTutorialSeenKey, '1');
       await AsyncStorage.removeItem(baseTutorialPhaseKey);
+      if (scopedSeenKey) await AsyncStorage.setItem(scopedSeenKey, '1');
+      if (scopedPhaseKey) await AsyncStorage.removeItem(scopedPhaseKey);
+
+      // 화면 상태에서 쓰는 현재 키도 함께 정리
+      await AsyncStorage.setItem(tutorialKeys.seen, '1');
+      await AsyncStorage.removeItem(tutorialKeys.phase);
     } catch {
       // ignore
     }
@@ -113,8 +122,14 @@ export default function ScanScreen() {
     // Hide scan overlay but continue tutorial on Verify screen.
     setShowTutorial(false);
     try {
-      await AsyncStorage.setItem(tutorialKeys.phase, 'verify');
+      const userId = await getSessionUserId().catch(() => null);
+      const scopedPhaseKey = userId ? `@nutrimatch_scan_tutorial_phase:${userId}` : null;
+
       await AsyncStorage.setItem(baseTutorialPhaseKey, 'verify');
+      if (scopedPhaseKey) await AsyncStorage.setItem(scopedPhaseKey, 'verify');
+
+      // 화면 상태에서 쓰는 현재 키도 함께 세팅
+      await AsyncStorage.setItem(tutorialKeys.phase, 'verify');
     } catch {
       // ignore
     }
@@ -135,7 +150,7 @@ export default function ScanScreen() {
     });
   };
 
-  const handleScan = async () => {
+  const handleScan = useCallback(async () => {
     const ok = await ensureScanQuotaOrAlert();
     if (!ok) return;
 
@@ -147,16 +162,16 @@ export default function ScanScreen() {
       console.error('Camera Error:', error);
       alert({ title: '오류', message: error?.message || '카메라를 실행하는 중 문제가 발생했습니다.' });
     }
-  };
+  }, [alert, navigation]);
 
-  const handleScanFromTutorial = async () => {
+  const handleScanFromTutorial = useCallback(async () => {
     if (showTutorial) {
       await goToVerifyTutorialPhase();
     }
     await handleScan();
-  };
+  }, [showTutorial, handleScan]);
 
-  const handleGallery = async () => {
+  const handleGallery = useCallback(async () => {
     const ok = await ensureScanQuotaOrAlert();
     if (!ok) return;
 
@@ -171,7 +186,7 @@ export default function ScanScreen() {
       console.error('Gallery Error:', error);
       alert({ title: '오류', message: error?.message || '갤러리를 여는 중 문제가 발생했습니다.' });
     }
-  };
+  }, [alert, navigation]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -197,7 +212,13 @@ export default function ScanScreen() {
           </Card>
 
           <Card style={styles.infoCard}>
-            <Text style={styles.cardTitle}>무엇을 찍으면 되나요?</Text>
+            <View style={styles.cardTitleRow}>
+              <Text style={styles.cardTitle}>무엇을 찍으면 되나요?</Text>
+              <TouchableOpacity onPress={handleTips} style={styles.tipButton}>
+                <AppIcon name="lightbulb" color="#FFD700" size={20} />
+                <Text style={styles.tipText}>Tip</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.tagRow}>
               <Badge variant="outline" text="밝은 조명" />
               <Badge variant="outline" text="선명한 초점" />
@@ -231,14 +252,7 @@ export default function ScanScreen() {
               style={styles.scanButton}
               icon={<AppIcon name="photo-library" color={COLORS.primary} size={20} />}
             />
-            <View style={{ height: 12 }} />
-            <Button
-              title="촬영 팁"
-              onPress={handleTips}
-              variant="outline"
-              style={styles.scanButton}
-              icon={<AppIcon name="lightbulb" color={COLORS.primary} size={20} />}
-            />
+
           </View>
         </View>
       </View>
@@ -460,7 +474,29 @@ const styles = StyleSheet.create({
 
   // Info Card
   infoCard: { padding: SPACING.md },
-  cardTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: SPACING.sm },
+  cardTitleRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between',
+    marginBottom: SPACING.sm,
+  },
+  cardTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text },
+  tipButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: RADIUS.full,
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    borderWidth: 1,
+    borderColor: '#FFD700',
+  },
+  tipText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFD700',
+  },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: SPACING.sm },
   quickList: { gap: 4 },
   quickItem: { fontSize: 14, color: COLORS.textGray, lineHeight: 20 },

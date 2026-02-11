@@ -51,6 +51,35 @@ cd android
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## 7-1. (자주 발생) 에뮬레이터 저장공간 부족으로 설치 실패
+에러 예: `INSTALL_FAILED_INSUFFICIENT_STORAGE: Failed to override installation location`
+
+### 빠른 해결
+```powershell
+# 패키지명 확인 (보통 android/app/build.gradle의 applicationId)
+
+# 기존 앱 제거 후 재설치
+adb uninstall com.front
+npx react-native run-android
+```
+
+### 원인 점검
+```powershell
+adb shell df -h
+```
+
+### 재발 방지(권장)
+- Android Studio > Device Manager에서 해당 AVD:
+   - **Wipe Data** (용량/캐시가 꼬였을 때 가장 확실)
+   - **Internal Storage / SD Card** 용량을 넉넉히(예: 8~16GB)로 설정
+   - Quick Boot(스냅샷) 때문에 디스크가 계속 불어나면 **Cold Boot 위주로 사용**
+
+### (고급) AVD 설정 파일 직접 수정
+`%USERPROFILE%\.android\avd\<AVD이름>.avd\config.ini`
+- `disk.dataPartition.size=12G` 처럼 /data 파티션 확대
+- `fastboot.forceFastBoot=no`, `fastboot.forceColdBoot=yes`로 Quick Boot 비활성화
+- 변경 후에는 보통 **Wipe Data**(또는 userdata 이미지 삭제)가 필요
+
 ## 8. Hermes 디버깅
 ```powershell
 npx react-native run-android --variant=debug

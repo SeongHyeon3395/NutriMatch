@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -9,8 +9,9 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { Button } from '../../components/ui/Button';
 import { useUserStore } from '../../store/userStore';
 import { BODY_GOALS, HEALTH_DIETS, LIFESTYLE_DIETS } from '../../constants';
-import { fetchMyAppUser } from '../../services/userData';
+import { fetchMyAppUser, getMonthlyMealPlanCountRemote, getMonthlyScanCountRemote } from '../../services/userData';
 import { isSupabaseConfigured, supabase } from '../../services/supabaseClient';
+import { MONTHLY_MEAL_PLAN_LIMIT, MONTHLY_SCAN_LIMIT } from '../../config';
 
 type InfoRowProps = {
   label: string;
@@ -35,6 +36,9 @@ export default function PersonalInfoScreen() {
   const username = profile?.username || (profile?.email ? profile.email.split('@')[0] : '');
   const nickname = profile?.nickname || profile?.name || '';
 
+  const [monthlyScanCount, setMonthlyScanCount] = useState<number | null>(null);
+  const [monthlyMealPlanCount, setMonthlyMealPlanCount] = useState<number | null>(null);
+
   useFocusEffect(
     useCallback(() => {
       let alive = true;
@@ -46,6 +50,20 @@ export default function PersonalInfoScreen() {
           await setProfile(remote as any);
         } catch {
           // ignore
+        }
+
+        try {
+          const [scanCount, mealPlanCount] = await Promise.all([
+            getMonthlyScanCountRemote().catch(() => null),
+            getMonthlyMealPlanCountRemote().catch(() => null),
+          ]);
+          if (!alive) return;
+          setMonthlyScanCount(typeof scanCount === 'number' ? scanCount : null);
+          setMonthlyMealPlanCount(typeof mealPlanCount === 'number' ? mealPlanCount : null);
+        } catch {
+          if (!alive) return;
+          setMonthlyScanCount(null);
+          setMonthlyMealPlanCount(null);
         }
       })();
       return () => {
@@ -73,6 +91,13 @@ export default function PersonalInfoScreen() {
     if (!profile?.lifestyleDiet) return '설정 전';
     return LIFESTYLE_DIETS.find(x => x.id === profile.lifestyleDiet)?.label || String(profile.lifestyleDiet);
   }, [profile?.lifestyleDiet]);
+
+  const remainingScanThisMonth =
+    typeof monthlyScanCount === 'number' ? Math.max(0, MONTHLY_SCAN_LIMIT - monthlyScanCount) : null;
+  const remainingMealPlanThisMonth =
+    typeof monthlyMealPlanCount === 'number'
+      ? Math.max(0, MONTHLY_MEAL_PLAN_LIMIT - monthlyMealPlanCount)
+      : null;
 
   if (!profile) {
     return (
@@ -146,21 +171,21 @@ export default function PersonalInfoScreen() {
 
         <Card style={styles.card}>
           <Text style={styles.sectionTitle}>플랜</Text>
-          <InfoRow label="플랜" value={profile?.plan_id ? String(profile.plan_id) : 'free'} />
+          <InfoRow label="플랜" value={profile?.plan_id ? String(profile.plan_id) : 'Free'} />
           <InfoRow
-            label="무료 이미지 쿼터"
+            label="이번 달 남은 스캔"
             value={
-              typeof profile?.free_image_quota_remaining === 'number'
-                ? String(profile.free_image_quota_remaining)
-                : '3'
+              typeof remainingScanThisMonth === 'number'
+                ? `${remainingScanThisMonth}/${MONTHLY_SCAN_LIMIT}`
+                : '불러오는 중'
             }
           />
           <InfoRow
-            label="프리미엄 쿼터"
+            label="이번 달 남은 식단 생성"
             value={
-              typeof profile?.premium_quota_remaining === 'number'
-                ? String(profile.premium_quota_remaining)
-                : '0'
+              typeof remainingMealPlanThisMonth === 'number'
+                ? `${remainingMealPlanThisMonth}/${MONTHLY_MEAL_PLAN_LIMIT}`
+                : '불러오는 중'
             }
           />
         </Card>

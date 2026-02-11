@@ -10,10 +10,19 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
 import { supabase } from '../../services/supabaseClient';
-import { getMonthlyAverageDietScoreRemote, getMonthlyScanCountRemote, getSessionUserId, updateMyProfileAvatarRemote } from '../../services/userData';
-import { MONTHLY_SCAN_LIMIT } from '../../config';
+import { getMonthlyAverageDietScoreRemote, getMonthlyMealPlanCountRemote, getMonthlyScanCountRemote, getSessionUserId, updateMyProfileAvatarRemote } from '../../services/userData';
+import { MONTHLY_MEAL_PLAN_LIMIT, MONTHLY_SCAN_LIMIT } from '../../config';
 import { pickAvatarFromLibrary } from '../../services/imagePicker';
 import { markUserInitiatedSignOut } from '../../services/authSignals';
+import { GRADE_COLORS } from '../../types/user';
+
+function scoreToColor(score: number) {
+  if (score >= 85) return GRADE_COLORS.very_good;
+  if (score >= 70) return GRADE_COLORS.good;
+  if (score >= 55) return GRADE_COLORS.neutral;
+  if (score >= 40) return GRADE_COLORS.bad;
+  return GRADE_COLORS.very_bad;
+}
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
@@ -24,6 +33,7 @@ export default function ProfileScreen() {
   const setProfile = useUserStore(state => state.setProfile);
 
   const [monthlyScanCount, setMonthlyScanCount] = useState<number | null>(null);
+  const [monthlyMealPlanCount, setMonthlyMealPlanCount] = useState<number | null>(null);
   const [monthlyDietScore, setMonthlyDietScore] = useState<number | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
@@ -34,6 +44,10 @@ export default function ProfileScreen() {
 
   const usedThisMonth = typeof monthlyScanCount === 'number' ? monthlyScanCount : null;
   const remainingThisMonth = typeof usedThisMonth === 'number' ? Math.max(0, MONTHLY_SCAN_LIMIT - usedThisMonth) : null;
+  const usedMealPlanThisMonth = typeof monthlyMealPlanCount === 'number' ? monthlyMealPlanCount : null;
+  const remainingMealPlanThisMonth =
+    typeof usedMealPlanThisMonth === 'number' ? Math.max(0, MONTHLY_MEAL_PLAN_LIMIT - usedMealPlanThisMonth) : null;
+  const monthlyScoreColor = typeof monthlyDietScore === 'number' ? scoreToColor(monthlyDietScore) : COLORS.text;
 
   const avatarPath = profile?.avatarPath || null;
 
@@ -112,6 +126,7 @@ export default function ProfileScreen() {
         const userId = await getSessionUserId().catch(() => null);
         if (!userId) {
           if (mounted) setMonthlyScanCount(null);
+          if (mounted) setMonthlyMealPlanCount(null);
           if (mounted) setMonthlyDietScore(null);
           return;
         }
@@ -119,11 +134,14 @@ export default function ProfileScreen() {
           getMonthlyScanCountRemote().catch(() => null),
           getMonthlyAverageDietScoreRemote().catch(() => null),
         ]);
+        const mealPlanN = await getMonthlyMealPlanCountRemote().catch(() => null);
         if (!mounted) return;
         setMonthlyScanCount(typeof n === 'number' ? n : 0);
+        setMonthlyMealPlanCount(typeof mealPlanN === 'number' ? mealPlanN : 0);
         setMonthlyDietScore(typeof dietScore === 'number' ? dietScore : null);
       } catch {
         if (mounted) setMonthlyScanCount(null);
+        if (mounted) setMonthlyMealPlanCount(null);
         if (mounted) setMonthlyDietScore(null);
       }
     })();
@@ -134,6 +152,7 @@ export default function ProfileScreen() {
 
   const menuItems = [
     { iconName: 'person', label: '내 정보', route: 'PersonalInfo' },
+    { iconName: 'history', label: '히스토리', route: 'History' },
     { iconName: 'notifications', label: '알림 설정', route: 'Notifications' },
     { iconName: 'security', label: '개인정보 및 보안', route: 'Privacy' },
     { iconName: 'credit-card', label: '구독 관리', route: 'Subscription' },
@@ -197,6 +216,18 @@ export default function ProfileScreen() {
               <Text style={styles.userName}>{userName} 님</Text>
             <View style={styles.planBadge}>
               <Badge variant="secondary" text={plan + ' 플랜'} />
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => navigation.navigate('MonthlyDietScores' as never)}
+                accessibilityRole="button"
+                accessibilityLabel="월간 식단 점수 보기"
+              >
+                <Badge
+                  variant="outline"
+                  text={`이번 달 식단 점수 ${typeof monthlyDietScore === 'number' ? `${monthlyDietScore}점` : '-'}`}
+                  textStyle={{ color: typeof monthlyDietScore === 'number' ? monthlyScoreColor : COLORS.textSecondary }}
+                />
+              </TouchableOpacity>
             </View>
           </View>
           <TouchableOpacity style={styles.settingsButton} onPress={() => navigation.navigate('Settings' as never)}>
@@ -210,11 +241,12 @@ export default function ProfileScreen() {
             <Text style={styles.statValue}>{typeof remainingThisMonth === 'number' ? String(remainingThisMonth) : '-'}</Text>
             <Text style={styles.statLabel}>이번 달 남은 스캔</Text>
           </Card>
+
           <Card style={styles.statCard}>
             <Text style={styles.statValue}>
-              {typeof monthlyDietScore === 'number' ? `${monthlyDietScore}점` : '-'}
+              {typeof remainingMealPlanThisMonth === 'number' ? String(remainingMealPlanThisMonth) : '-'}
             </Text>
-            <Text style={styles.statLabel}>이번 달 식단 점수</Text>
+            <Text style={styles.statLabel}>이번 달 남은 식단 생성</Text>
           </Card>
         </View>
 
@@ -235,10 +267,17 @@ export default function ProfileScreen() {
           {menuItems.map((item, index) => (
             <TouchableOpacity
               key={index}
-              style={styles.menuItem}
+              style={[
+                styles.menuItem,
+                index === menuItems.length - 1 && styles.menuItemLast,
+              ]}
               onPress={() => {
                 if (item.route === 'PersonalInfo') {
                   navigation.navigate('PersonalInfo' as never);
+                  return;
+                }
+                if (item.route === 'History') {
+                  navigation.navigate('History' as never);
                   return;
                 }
                 if (item.route === 'Privacy') {
@@ -325,17 +364,21 @@ const styles = StyleSheet.create({
   },
   planBadge: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   settingsButton: {
     padding: 8,
   },
   statsContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
     marginBottom: 16,
   },
   statCard: {
     flex: 1,
+    minWidth: '48%',
     alignItems: 'center',
     padding: 16,
   },
@@ -414,6 +457,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: COLORS.text,
+  },
+  menuItemLast: {
+    borderBottomWidth: 0,
   },
   logoutButton: {
     flexDirection: 'row',

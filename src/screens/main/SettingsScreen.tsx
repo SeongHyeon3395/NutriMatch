@@ -9,6 +9,7 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
 import { supabase } from '../../services/supabaseClient';
+import { markUserInitiatedSignOut } from '../../services/authSignals';
 import { getSessionUserId, resetMyAccountDataRemote } from '../../services/userData';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -52,6 +53,7 @@ export default function SettingsScreen() {
           variant: 'danger',
           onPress: async () => {
             try {
+              markUserInitiatedSignOut();
               await supabase?.auth.signOut();
             } catch {
               // ignore
@@ -70,7 +72,11 @@ export default function SettingsScreen() {
   const handleResetAccountData = useCallback(() => {
     alert({
       title: '계정 데이터 초기화',
-      message: '식단/히스토리 기록을 삭제하고 신체정보를 초기화합니다.\n초기화 후 신체정보를 다시 입력해야 합니다.\n계속할까요?',
+      message:
+        '식단/히스토리 기록(최근 만든 식단 포함)을 삭제하고 신체정보를 초기화합니다.\n' +
+        '초기화하면 되돌릴 수 없습니다.\n' +
+        '초기화 후 신체정보를 다시 입력해야 합니다.\n' +
+        '계속할까요?',
       actions: [
         { text: '취소', variant: 'outline' },
         {
@@ -85,19 +91,7 @@ export default function SettingsScreen() {
               return;
             }
 
-            // 계정 데이터 초기화 시에는 튜토리얼도 다시 보여주기 위해 키를 초기화
-            try {
-              const userId = await getSessionUserId().catch(() => null);
-              const keys = [
-                '@nutrimatch_scan_tutorial_seen',
-                '@nutrimatch_scan_tutorial_phase',
-                userId ? `@nutrimatch_scan_tutorial_seen:${userId}` : null,
-                userId ? `@nutrimatch_scan_tutorial_phase:${userId}` : null,
-              ].filter(Boolean) as string[];
-              await AsyncStorage.multiRemove(keys);
-            } catch {
-              // ignore
-            }
+            // 튜토리얼은 계정당 "최초 1회"만 노출: 계정 데이터 초기화로 다시 나오지 않도록 키를 유지합니다.
 
             await clearAllData();
             navigation.reset({

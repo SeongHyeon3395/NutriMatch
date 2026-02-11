@@ -1,12 +1,13 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { UserProfile, FoodLog, BodyLog } from '../types/user';
+import { UserProfile, FoodLog, BodyLog, ManualMealLog } from '../types/user';
 import { getSessionUserId, updateMyAppUser } from '../services/userData';
 
 interface UserState {
   profile: UserProfile | null;
   foodLogs: FoodLog[];
   bodyLogs: BodyLog[];
+  manualMealLogs: ManualMealLog[];
   
   // Actions
   setProfile: (profile: UserProfile) => Promise<void>;
@@ -22,11 +23,18 @@ interface UserState {
   addBodyLog: (log: BodyLog) => Promise<void>;
   loadBodyLogs: () => Promise<void>;
   setBodyLogs: (logs: BodyLog[]) => Promise<void>;
+
+  addManualMealLog: (log: ManualMealLog) => Promise<void>;
+  updateManualMealLog: (id: string, updates: Partial<ManualMealLog>) => Promise<void>;
+  removeManualMealLog: (id: string) => Promise<void>;
+  loadManualMealLogs: () => Promise<void>;
+  setManualMealLogs: (logs: ManualMealLog[]) => Promise<void>;
 }
 
 const PROFILE_KEY = '@nutrimatch_profile';
 const FOOD_LOGS_KEY = '@nutrimatch_food_logs';
 const BODY_LOGS_KEY = '@nutrimatch_body_logs';
+const MANUAL_MEAL_LOGS_KEY = '@nutrimatch_manual_meal_logs';
 
 function scopedKey(base: string, userId?: string | null) {
   return userId ? `${base}:${userId}` : base;
@@ -36,6 +44,7 @@ export const useUserStore = create<UserState>((set, get) => ({
   profile: null,
   foodLogs: [],
   bodyLogs: [],
+  manualMealLogs: [],
   
   setProfile: async (profile: UserProfile) => {
     await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
@@ -89,11 +98,13 @@ export const useUserStore = create<UserState>((set, get) => ({
       PROFILE_KEY,
       FOOD_LOGS_KEY,
       BODY_LOGS_KEY,
+      MANUAL_MEAL_LOGS_KEY,
       scopedKey(FOOD_LOGS_KEY, userId),
       scopedKey(BODY_LOGS_KEY, userId),
+      scopedKey(MANUAL_MEAL_LOGS_KEY, userId),
     ];
     await AsyncStorage.multiRemove(keys);
-    set({ profile: null, foodLogs: [], bodyLogs: [] });
+    set({ profile: null, foodLogs: [], bodyLogs: [], manualMealLogs: [] });
   },
   
   addFoodLog: async (log: FoodLog) => {
@@ -152,5 +163,50 @@ export const useUserStore = create<UserState>((set, get) => ({
     const userId = get().profile?.id;
     await AsyncStorage.setItem(scopedKey(BODY_LOGS_KEY, userId), JSON.stringify(logs));
     set({ bodyLogs: logs });
+  },
+
+  addManualMealLog: async (log: ManualMealLog) => {
+    const logs = [...get().manualMealLogs, log];
+    const userId = get().profile?.id;
+    await AsyncStorage.setItem(scopedKey(MANUAL_MEAL_LOGS_KEY, userId), JSON.stringify(logs));
+    set({ manualMealLogs: logs });
+  },
+
+  updateManualMealLog: async (id: string, updates: Partial<ManualMealLog>) => {
+    const prev = get().manualMealLogs;
+    const logs = prev.map((l) => (l.id === id ? { ...l, ...updates } : l));
+    const userId = get().profile?.id;
+    await AsyncStorage.setItem(scopedKey(MANUAL_MEAL_LOGS_KEY, userId), JSON.stringify(logs));
+    set({ manualMealLogs: logs });
+  },
+
+  removeManualMealLog: async (id: string) => {
+    const prev = get().manualMealLogs;
+    const logs = prev.filter((l) => l.id !== id);
+    const userId = get().profile?.id;
+    await AsyncStorage.setItem(scopedKey(MANUAL_MEAL_LOGS_KEY, userId), JSON.stringify(logs));
+    set({ manualMealLogs: logs });
+  },
+
+  loadManualMealLogs: async () => {
+    try {
+      const userId = get().profile?.id;
+      const stored = await AsyncStorage.getItem(scopedKey(MANUAL_MEAL_LOGS_KEY, userId));
+      if (stored) {
+        set({ manualMealLogs: JSON.parse(stored) });
+        return;
+      }
+      // legacy fallback (unscoped)
+      const legacy = await AsyncStorage.getItem(MANUAL_MEAL_LOGS_KEY);
+      if (legacy) set({ manualMealLogs: JSON.parse(legacy) });
+    } catch (e) {
+      console.error('Failed to load manual meal logs', e);
+    }
+  },
+
+  setManualMealLogs: async (logs: ManualMealLog[]) => {
+    const userId = get().profile?.id;
+    await AsyncStorage.setItem(scopedKey(MANUAL_MEAL_LOGS_KEY, userId), JSON.stringify(logs));
+    set({ manualMealLogs: logs });
   },
 }));

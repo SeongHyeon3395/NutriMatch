@@ -17,6 +17,7 @@ export interface AppAlertAction {
 export interface AppAlertOptions {
   title: string;
   message?: string;
+  content?: React.ReactNode;
   actions?: AppAlertAction[];
 }
 
@@ -73,6 +74,7 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
                 </TouchableOpacity>
               </View>
               {!!options.message && <Text style={styles.message}>{options.message}</Text>}
+              {!!options.content && <View style={styles.content}>{options.content}</View>}
 
               <ScrollView
                 style={styles.actionsScroll}
@@ -132,7 +134,9 @@ const styles = StyleSheet.create({
     padding: SPACING.lg,
   },
   alertCard: {
-    padding: SPACING.lg,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.lg,
+    paddingBottom: SPACING.md,
     borderRadius: RADIUS.md,
   },
   titleRow: {
@@ -146,7 +150,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: COLORS.text,
-    marginBottom: SPACING.sm,
+    marginBottom: 0,
   },
   closeButton: {
     width: 36,
@@ -160,12 +164,15 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     lineHeight: 20,
   },
+  content: {
+    marginTop: SPACING.md,
+  },
   actions: {
-    marginTop: SPACING.lg,
-    gap: 12,
+    marginTop: SPACING.md,
+    gap: 8,
   },
   actionsContent: {
-    paddingBottom: 10,
+    paddingBottom: 0,
   },
   actionsScroll: {
     maxHeight: 520,

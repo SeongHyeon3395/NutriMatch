@@ -14,7 +14,6 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -39,7 +38,7 @@ function statusToLabel(status: PermissionStatus) {
     case 'denied':
       return { text: '거부됨', variant: 'danger' as const };
     case 'unavailable':
-      return { text: '지원 안 함', variant: 'outline' as const };
+      return { text: '설정에서 확인', variant: 'outline' as const };
     default:
       return { text: '확인 필요', variant: 'outline' as const };
   }
@@ -63,7 +62,6 @@ export default function PrivacySecurityScreen() {
 
   const [cameraStatus, setCameraStatus] = useState<PermissionStatus>('unknown');
   const [photosStatus, setPhotosStatus] = useState<PermissionStatus>('unknown');
-  const [locationStatus, setLocationStatus] = useState<PermissionStatus>('unknown');
 
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const isDeletingAccountRef = useRef(false);
@@ -91,9 +89,9 @@ export default function PrivacySecurityScreen() {
 
   const refreshAndroidPermissions = useCallback(async () => {
     if (Platform.OS !== 'android') {
-      setCameraStatus('unknown');
-      setPhotosStatus('unknown');
-      setLocationStatus('unknown');
+      // iOS 권한 상태는 별도 라이브러리 없이 정밀 조회가 어려워 설정에서 확인하도록 안내
+      setCameraStatus('unavailable');
+      setPhotosStatus('unavailable');
       return;
     }
 
@@ -109,14 +107,9 @@ export default function PrivacySecurityScreen() {
           : PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE;
       const photos = await PermissionsAndroid.check(photosPerm);
       setPhotosStatus(photos ? 'granted' : 'denied');
-
-      const fine = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-      const coarse = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION);
-      setLocationStatus(fine || coarse ? 'granted' : 'denied');
     } catch {
       setCameraStatus('unknown');
       setPhotosStatus('unknown');
-      setLocationStatus('unknown');
     }
   }, []);
 
@@ -164,24 +157,6 @@ export default function PrivacySecurityScreen() {
     Linking.openURL(PRIVACY_POLICY_URL);
   }, [alert]);
 
-  const handleExportData = useCallback(async () => {
-    const payload = {
-      exportedAt: new Date().toISOString(),
-      profile,
-      foodLogs,
-      bodyLogs,
-    };
-
-    try {
-      await Share.share({
-        title: 'NutriMatch 데이터 내보내기',
-        message: JSON.stringify(payload, null, 2),
-      });
-    } catch (e: any) {
-      alert({ title: '내보내기 실패', message: e?.message || String(e) });
-    }
-  }, [alert, bodyLogs, foodLogs, profile]);
-
   const handleDeleteAccount = useCallback(() => {
     setDeleteConfirmText('');
     setShowDeleteConfirm(true);
@@ -226,13 +201,6 @@ export default function PrivacySecurityScreen() {
     }
   }, [alert, clearAllData, deleteConfirmText, navigation, requiredDeletePhrase, safeSetIsDeletingAccount]);
 
-  const handleNotReady = useCallback(
-    (title: string) => {
-      alert({ title, message: '현재 버전에서는 준비 중인 기능입니다.' });
-    },
-    [alert]
-  );
-
   const permissionRows = useMemo(
     () => [
       {
@@ -245,13 +213,8 @@ export default function PrivacySecurityScreen() {
         desc: '갤러리에서 사진 선택에 사용',
         status: photosStatus,
       },
-      {
-        title: '위치 서비스',
-        desc: '위치 기반 기능(있는 경우)에 사용',
-        status: locationStatus,
-      },
     ],
-    [cameraStatus, locationStatus, photosStatus]
+    [cameraStatus, photosStatus]
   );
 
   return (
@@ -355,7 +318,7 @@ export default function PrivacySecurityScreen() {
         >
           <AppIcon name="chevron-left" size={26} color={COLORS.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>개인정보 및 보안</Text>
+        <Text style={styles.headerTitle}>개인정보</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -366,14 +329,14 @@ export default function PrivacySecurityScreen() {
             <Badge variant="outline" text="Privacy Policy" />
           </View>
           <Text style={styles.paragraph}>
-            NutriMatch는 서비스 제공을 위해 최소한의 정보를 처리합니다. 자세한 내용은 개인정보 처리방침에서 확인할 수 있어요.
+            뉴핏은 서비스 제공을 위해 필요한 범위에서만 개인정보를 처리합니다. 자세한 내용은 개인정보 처리방침에서 확인할 수 있어요.
           </Text>
 
           <View style={styles.bullets}>
-            <Text style={styles.bullet}>• 수집 항목: 이름, 이메일, 기기 식별 정보(기기 ID 등), 위치 정보(권한 허용 시)</Text>
-            <Text style={styles.bullet}>• 수집 목적: 서비스 제공, 기능 개선(통계), 오류 분석</Text>
+            <Text style={styles.bullet}>• 수집 항목: 이메일/닉네임/프로필, 신체 정보(선택), 사진(선택), 서비스 이용 기록/기기 정보</Text>
+            <Text style={styles.bullet}>• 수집 목적: 서비스 제공(분석/기록/맞춤 기능), 기능 개선(통계), 오류 분석</Text>
             <Text style={styles.bullet}>• 보유 기간: 목적 달성 시 또는 사용자가 삭제 요청 시</Text>
-            <Text style={styles.bullet}>• 제3자 제공: Supabase(인증/DB), Google Gemini API(이미지 분석) 등</Text>
+            <Text style={styles.bullet}>• 처리 위탁/제공: Supabase(인증/DB/스토리지), AI 분석 제공자(이미지 분석) 등</Text>
           </View>
 
           <Button
@@ -436,13 +399,6 @@ export default function PrivacySecurityScreen() {
 
           <View style={styles.actionsGrid}>
             <Button
-              title="데이터 내보내기"
-              variant="outline"
-              onPress={handleExportData}
-              icon={<AppIcon name="file-download" size={18} color={COLORS.primary} />}
-              style={styles.actionButton}
-            />
-            <Button
               title="계정 삭제(탈퇴)"
               variant="danger"
               onPress={handleDeleteAccount}
@@ -456,34 +412,6 @@ export default function PrivacySecurityScreen() {
           </Text>
         </Card>
 
-        <Card style={styles.card}>
-          <Text style={styles.cardTitle}>보안 설정</Text>
-          <Text style={styles.paragraph}>로그인/계정 보호 기능(생체인증, 2FA, 기기 관리)을 제공합니다.</Text>
-
-          <TouchableOpacity style={styles.tapRow} onPress={() => handleNotReady('생체 인증')}>
-            <View style={styles.tapLeft}>
-              <AppIcon name="fingerprint" size={20} color={COLORS.text} />
-              <Text style={styles.tapText}>생체 인증 (Face ID/지문)</Text>
-            </View>
-            <Badge variant="outline" text="준비 중" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.tapRow} onPress={() => handleNotReady('2단계 인증 (2FA)')}>
-            <View style={styles.tapLeft}>
-              <AppIcon name="verified-user" size={20} color={COLORS.text} />
-              <Text style={styles.tapText}>2단계 인증 (2FA)</Text>
-            </View>
-            <Badge variant="outline" text="준비 중" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.tapRow} onPress={() => handleNotReady('로그인 기기 관리')}>
-            <View style={styles.tapLeft}>
-              <AppIcon name="devices" size={20} color={COLORS.text} />
-              <Text style={styles.tapText}>로그인 기기 관리</Text>
-            </View>
-            <Badge variant="outline" text="준비 중" />
-          </TouchableOpacity>
-        </Card>
       </ScrollView>
     </SafeAreaView>
   );
@@ -643,14 +571,4 @@ const styles = StyleSheet.create({
   actionsGrid: { flexDirection: 'row', gap: 12, marginTop: SPACING.md },
   actionButton: { flex: 1 },
   noteText: { marginTop: SPACING.md, fontSize: 12, color: COLORS.textSecondary, lineHeight: 18 },
-  tapRow: {
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  tapLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  tapText: { fontSize: 14, color: COLORS.text, fontWeight: '600' },
 });

@@ -40,6 +40,31 @@ function isKoreanLocale() {
   return tag === 'ko' || tag.startsWith('ko-');
 }
 
+function getLoginErrorMessage(err: any): string {
+  const raw = String(err?.message ?? err ?? '').trim();
+  const msg = raw.toLowerCase();
+
+  // Supabase: wrong id/password
+  if (msg.includes('invalid login credentials') || msg.includes('invalid_grant')) {
+    return '아이디 또는 비밀번호가 올바르지 않습니다.';
+  }
+
+  // Optional/common auth cases
+  if (msg.includes('email not confirmed') || msg.includes('email confirmation')) {
+    return '이메일 인증이 필요합니다. 이메일을 확인해주세요.';
+  }
+
+  if (msg.includes('too many requests') || msg.includes('rate limit')) {
+    return '요청이 너무 많아요. 잠시 후 다시 시도해주세요.';
+  }
+
+  if (msg.includes('network') || msg.includes('timeout') || msg.includes('failed to fetch')) {
+    return '네트워크 문제로 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.';
+  }
+
+  return raw || '로그인에 실패했습니다. 아이디/비밀번호를 확인 후 다시 시도해주세요.';
+}
+
 function GoogleMark({ size = 18 }: { size?: number }) {
   // 브랜드 에셋을 직접 포함하지 않고, 앱 팔레트로 "구글 느낌"을 맞춘 단순 마크입니다.
   const s = size;
@@ -62,11 +87,10 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
 export default function LoginScreen() {
   const navigation = useNavigation<NavigationProp>();
   const profile = useUserStore(state => state.profile);
-  const clearProfile = useUserStore(state => state.clearProfile);
   const setProfile = useUserStore(state => state.setProfile);
   const { alert } = useAppAlert();
 
-  const appTitle = useMemo(() => (isKoreanLocale() ? '뉴핏' : 'NewFit'), []);
+  const appTitle = useMemo(() => (isKoreanLocale() ? '뉴핏' : '뉴핏'), []);
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -94,7 +118,7 @@ export default function LoginScreen() {
       if (!isSupabaseConfigured || !supabase) {
         alert({
           title: '로그인 설정 필요',
-          message: '현재 Supabase 설정이 없어 로그인할 수 없습니다.\n하단 마스터 버튼으로 테스트 진입은 가능합니다.',
+          message: '현재 오류가 있어 로그인할 수 없습니다.',
         });
         return;
       }
@@ -123,73 +147,42 @@ export default function LoginScreen() {
     } catch (e: any) {
       alert({
         title: '로그인 실패',
-        message:
-          (e?.message || String(e)) +
-          (String(e?.message || '').includes('Invalid login credentials')
-            ? '\n\n(참고) 회원가입/로그인이 서로 다른 Supabase 프로젝트를 보고 있거나, SUPABASE_URL/BASE_URL 설정이 맞지 않을 때도 이 오류가 납니다.'
-            : ''),
+        message: getLoginErrorMessage(e),
       });
     } finally {
       setLoggingIn(false);
     }
   };
 
-  const handleMasterLogin = async () => {
-    const now = new Date().toISOString();
-    await setProfile({
-      id: 'local-master',
-      email: 'master@nutrimatch.local',
-      name: '마스터',
-      username: 'master',
-      nickname: '마스터',
-      bodyGoal: 'maintenance',
-      healthDiet: 'none_health',
-      lifestyleDiet: 'none_lifestyle',
-      allergens: ['참외', '오이'],
-      onboardingCompleted: true,
-      createdAt: now,
-      updatedAt: now,
-      plan_id: 'master',
-      premium_quota_remaining: 999999,
-      free_image_quota_remaining: 999999,
-    });
-    navigation.replace('MainTab');
-  };
-
   const handleFindEmail = () => {
-    alert({ title: '이메일 찾기', message: '현재 버전에서는 준비 중인 기능입니다.' });
+    alert({
+      title: '이메일 찾기',
+      message: '고객센터(psunghyi@gmail.com)로 문의해주세요.',
+    });
   };
 
   const handleFindPassword = () => {
-    alert({ title: '비밀번호 찾기', message: '현재 버전에서는 준비 중인 기능입니다.' });
+    alert({
+      title: '비밀번호 찾기',
+      message: '고객센터(psunghyi@gmail.com)로 문의해주세요.',
+    });
   };
 
-  const handleTestLogin = () => {
-    // backward compatibility: keep existing handler name but route to master
-    void handleMasterLogin();
-  };
-
-  const handleNewStart = async () => {
-    await clearProfile();
-    navigation.replace('Onboarding', { initialStep: 1 } as never);
-  };
-
-  return (
+  return (  
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <View style={styles.header}>
+        <View style={styles.header}> 
           <Text style={styles.title}>{appTitle}</Text>
           <Text style={styles.subtitle}>나만의 AI 영양 관리 파트너</Text>
-        </View>
-
-        <View style={styles.form}>
-          <View style={styles.inputStack}>
+        </View> 
+  
+          <View style={styles.inputStack}> 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>아이디</Text>
-              <TextInput
+              <TextInput  
                 value={username}
                 onChangeText={setUsername}
-                placeholder="아이디"
+                placeholder="아이디"  
                 placeholderTextColor={COLORS.textGray}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -257,17 +250,6 @@ export default function LoginScreen() {
             <Text style={styles.googleText}>Google로 로그인</Text>
           </TouchableOpacity>
         </View>
-      </View>
-
-      <View style={styles.footerButtons}>
-        <TouchableOpacity style={styles.newButton} onPress={handleNewStart}>
-          <Text style={styles.newButtonText}>New</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.testButton} onPress={handleTestLogin}>
-          <Text style={styles.testButtonText}>마스터</Text>
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 }
@@ -395,42 +377,5 @@ const styles = StyleSheet.create({
     height: 1,
     width: '100%',
     backgroundColor: COLORS.text,
-  },
-  footerButtons: {
-    padding: 24,
-    gap: 12,
-    alignItems: 'center',
-  },
-  newButton: {
-    backgroundColor: '#10B981', // Emerald 500
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 24,
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  newButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  testButton: {
-    backgroundColor: '#3B82F6',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 24,
-    width: '100%',
-    alignItems: 'center',
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  testButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
   },
 });

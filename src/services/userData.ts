@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import type { BodyLog, FoodGrade, FoodLog, UserProfile } from '../types/user';
+import type { MealPlanMode, MealPlanResult } from '../types/mealPlan';
 
 export type NotificationSettingsRemote = {
   enabled: boolean;
@@ -24,6 +25,10 @@ type AppUserRow = {
   height: number | null;
   age: number | string | null;
   gender: string | null;
+  target_calories?: number | string | null;
+  target_carbs?: number | string | null;
+  target_protein?: number | string | null;
+  target_fat?: number | string | null;
   created_at: string;
   updated_at: string;
 };
@@ -78,6 +83,11 @@ function mapAppUserRowToProfile(row: AppUserRow, email: string): UserProfile {
     age: parseNumeric(row.age),
     gender: (row.gender as any) || undefined,
 
+    targetCalories: parseNumeric(row.target_calories),
+    targetCarbs: parseNumeric(row.target_carbs),
+    targetProtein: parseNumeric(row.target_protein),
+    targetFat: parseNumeric(row.target_fat),
+
     onboardingCompleted: Boolean(row.onboarding_completed),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -102,6 +112,11 @@ function mapProfileUpdatesToAppUserUpdates(updates: Partial<UserProfile>) {
   if (updates.height !== undefined) out.height = updates.height;
   if (updates.age !== undefined) out.age = updates.age;
   if (updates.gender !== undefined) out.gender = updates.gender;
+
+  if (updates.targetCalories !== undefined) out.target_calories = updates.targetCalories;
+  if (updates.targetCarbs !== undefined) out.target_carbs = updates.targetCarbs;
+  if (updates.targetProtein !== undefined) out.target_protein = updates.targetProtein;
+  if (updates.targetFat !== undefined) out.target_fat = updates.targetFat;
 
   return out;
 }
@@ -805,4 +820,226 @@ export async function getMonthlyScanCountRemote(pMonth?: string) {
   const { data, error } = await client.rpc('get_monthly_scan_count_consumed', pMonth ? { p_month: pMonth } : {});
   if (error) throw error;
   return (data ?? 0) as number;
+}
+
+export async function consumeMonthlyScanRemote(limit: number) {
+  const userId = await getSessionUserId().catch(() => null);
+  if (!userId) return null;
+
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('consume_monthly_scan', { p_limit: limit });
+  if (error) throw error;
+  return (data ?? null) as number | null;
+}
+
+export async function refundLastScanRemote() {
+  const userId = await getSessionUserId().catch(() => null);
+  if (!userId) return false;
+
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('refund_last_scan', { p_source: 'food_analyze' });
+  if (error) throw error;
+  return (data ?? false) as boolean;
+}
+
+export async function getMonthlyMealPlanCountRemote(pMonth?: string) {
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('get_monthly_meal_plan_count_consumed', pMonth ? { p_month: pMonth } : {});
+  if (error) throw error;
+  return (data ?? 0) as number;
+}
+
+export async function consumeMonthlyMealPlanRemote(limit: number) {
+  const userId = await getSessionUserId().catch(() => null);
+  if (!userId) return null;
+
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('consume_monthly_meal_plan', { p_limit: limit });
+  if (error) throw error;
+  return (data ?? null) as number | null;
+}
+
+type MealPlanLogRow = {
+  id: number;
+  user_id: string;
+  mode: string;
+  pantry_items: string[] | null;
+  preview_title?: string | null;
+  preview_kcal?: number | string | null;
+  meal_names?: string[] | null;
+  result: any;
+  occurred_at: string;
+};
+
+export type MealPlanLog = {
+  id: number;
+  userId: string;
+  mode: MealPlanMode;
+  pantryItems: string[];
+  result?: MealPlanResult;
+  previewTitle?: string;
+  previewKcal?: number;
+  mealNames?: string[];
+  occurredAt: string;
+};
+
+function mapMealPlanLogRow(row: MealPlanLogRow): MealPlanLog {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    mode: String(row.mode) === 'pantry' ? 'pantry' : 'general',
+    pantryItems: Array.isArray(row.pantry_items) ? row.pantry_items : [],
+    result: row.result ? (row.result as MealPlanResult) : undefined,
+    previewTitle: typeof row.preview_title === 'string' ? row.preview_title : undefined,
+    previewKcal: (() => {
+      const v: any = (row as any).preview_kcal;
+      const n = typeof v === 'number' ? v : Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    })(),
+    mealNames: Array.isArray((row as any).meal_names)
+      ? ((row as any).meal_names as any[]).map((x) => String(x ?? '').trim()).filter(Boolean)
+      : undefined,
+    occurredAt: row.occurred_at,
+  };
+}
+
+function extractMealNamesFromResult(result: MealPlanResult | any): string[] {
+  const plan: any[] = Array.isArray(result?.plan) ? result.plan : [];
+  const names = new Set<string>();
+  for (const day of plan) {
+    const meals = day?.meals;
+    const candidates = [meals?.breakfast?.name, meals?.lunch?.name, meals?.dinner?.name];
+    for (const c of candidates) {
+      const s = String(c ?? '').trim();
+      if (s) names.add(s);
+    }
+  }
+  return Array.from(names);
+}
+
+export async function listMonthlyUsedMealNamesRemote(opts?: { baseDate?: Date }): Promise<string[]> {
+  const userId = await getSessionUserId().catch(() => null);
+  if (!userId) return [];
+
+  const base = opts?.baseDate instanceof Date ? opts.baseDate : new Date();
+  // Use UTC boundaries to avoid device timezone edge-cases.
+  const monthStart = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), 1, 0, 0, 0));
+  const nextMonthStart = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 1, 0, 0, 0));
+
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('meal_plan_logs')
+    .select('meal_names, occurred_at')
+    .eq('user_id', userId)
+    .gte('occurred_at', monthStart.toISOString())
+    .lt('occurred_at', nextMonthStart.toISOString())
+    .order('occurred_at', { ascending: false })
+    .limit(50);
+  if (error) throw error;
+
+  const used = new Set<string>();
+  for (const row of Array.isArray(data) ? (data as any[]) : []) {
+    const arr = Array.isArray(row?.meal_names) ? row.meal_names : [];
+    for (const v of arr) {
+      const s = String(v ?? '').trim();
+      if (s) used.add(s);
+    }
+  }
+  return Array.from(used);
+}
+
+export async function listMealPlanLogsRemote(limit = 20): Promise<MealPlanLog[]> {
+  const userId = await getSessionUserId().catch(() => null);
+  if (!userId) return [];
+
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('meal_plan_logs')
+    .select('id,user_id,mode,pantry_items,occurred_at,preview_title,preview_kcal')
+    .eq('user_id', userId)
+    .order('occurred_at', { ascending: false })
+    .limit(Math.max(1, Math.min(50, Math.floor(limit))));
+  if (error) throw error;
+  const rows = Array.isArray(data) ? (data as any as MealPlanLogRow[]) : [];
+  return rows.map(mapMealPlanLogRow);
+}
+
+export async function getMealPlanLogRemote(id: number): Promise<MealPlanLog | null> {
+  const userId = await getSessionUserId().catch(() => null);
+  if (!userId) return null;
+
+  const client = requireSupabase();
+  const logId = Number(id);
+  if (!Number.isFinite(logId)) return null;
+
+  const { data, error } = await client
+    .from('meal_plan_logs')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('id', logId)
+    .single();
+  if (error) throw error;
+  if (!data) return null;
+  return mapMealPlanLogRow(data as any);
+}
+
+export async function insertMealPlanLogRemote(params: {
+  mode: MealPlanMode;
+  pantryItems?: string[];
+  result: MealPlanResult;
+}): Promise<MealPlanLog | null> {
+  const userId = await getSessionUserId().catch(() => null);
+  if (!userId) return null;
+
+  const client = requireSupabase();
+  const day0: any = Array.isArray(params.result?.plan) ? (params.result as any).plan[0] : null;
+  const previewTitle = String(day0?.meals?.lunch?.name || day0?.meals?.breakfast?.name || day0?.meals?.dinner?.name || '식단');
+  const previewKcal = (() => {
+    const n = Number(day0?.totals?.calories);
+    return Number.isFinite(n) ? Math.round(n) : 0;
+  })();
+
+  const row = {
+    user_id: userId,
+    mode: params.mode,
+    pantry_items: Array.isArray(params.pantryItems) ? params.pantryItems : null,
+    result: params.result as any,
+    preview_title: previewTitle,
+    preview_kcal: previewKcal,
+    meal_names: extractMealNamesFromResult(params.result),
+  };
+
+  const { data, error } = await client.from('meal_plan_logs').insert(row as any).select('*').single();
+  if (error) throw error;
+  if (!data) return null;
+  return mapMealPlanLogRow(data as any);
+}
+
+export async function deleteMealPlanLogRemote(id: number): Promise<boolean> {
+  const userId = await getSessionUserId().catch(() => null);
+  if (!userId) return false;
+
+  const client = requireSupabase();
+  const logId = Number(id);
+  if (!Number.isFinite(logId)) return false;
+
+  const { error } = await client.from('meal_plan_logs').delete().eq('user_id', userId).eq('id', logId);
+  if (error) throw error;
+  return true;
+}
+
+export type MonthlyDietScoreRow = {
+  month_start: string;
+  avg_score100: number | null;
+  logs_count: number;
+};
+
+export async function getMonthlyDietScoresTimelineRemote(months = 36) {
+  const userId = await getSessionUserId().catch(() => null);
+  if (!userId) return [] as MonthlyDietScoreRow[];
+
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('get_monthly_diet_scores', { p_months: months });
+  if (error) throw error;
+  return (Array.isArray(data) ? data : []) as MonthlyDietScoreRow[];
 }

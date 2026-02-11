@@ -67,7 +67,9 @@ export { BASE_URL };
 export const ENDPOINTS = {
   // Active Supabase Edge Functions
   analyzeFoodImage: '/analyze-food-image',
+  generateMealPlan: '/generate-meal-plan',
   health: '/health',
+  healthChat: '/health-chat',
   signupDevice: '/signup-device',
   checkUsername: '/check-username',
 } as const;
@@ -81,6 +83,9 @@ export const PRIVACY_POLICY_URL = (ENV_PRIVACY_POLICY_URL || '').trim();
 
 // 기본 사용자 월 스캔 기회
 export const MONTHLY_SCAN_LIMIT = 5;
+
+// 기본 사용자 월 식단 생성 기회
+export const MONTHLY_MEAL_PLAN_LIMIT = 5;
 
 export function buildSupabaseHeaders(token?: string) {
   const bearer = token || SUPABASE_ANON_KEY;

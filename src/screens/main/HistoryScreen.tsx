@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/colors';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
@@ -62,6 +62,15 @@ export default function HistoryScreen() {
   const [activeFilter, setActiveFilter] = useState('전체'); // All, Meals, Products
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setIsEditMode(false);
+        setSelectedIds({});
+      };
+    }, [])
+  );
 
   const profile = useUserStore(state => state.profile);
   const foodLogs = useUserStore(state => state.foodLogs);
@@ -322,28 +331,38 @@ export default function HistoryScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.titleRow}>
-          <Text style={styles.title}>기록</Text>
-          {!isEditMode ? (
-            <TouchableOpacity onPress={handleEditPress} style={styles.headerAction}>
-              <Text style={styles.headerActionText}>편집</Text>
+      <View style={styles.topBar}>
+        {navigation?.canGoBack?.() ? (
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.topBarLeft}
+            accessibilityRole="button"
+            accessibilityLabel="뒤로가기"
+          >
+            <AppIcon name="chevron-left" size={28} color={COLORS.text} />
+          </TouchableOpacity>
+        ) : null}
+        <Text style={styles.topBarTitle}>기록</Text>
+        {!isEditMode ? (
+          <TouchableOpacity onPress={handleEditPress} style={[styles.headerAction, styles.topBarRight]}>
+            <Text style={styles.headerActionText}>편집</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={[styles.headerEditActions, styles.topBarRight]}>
+            <TouchableOpacity onPress={toggleSelectAll} style={styles.headerAction}>
+              <Text style={styles.headerActionText}>{isAllSelected ? '선택 해제' : '모두 선택'}</Text>
             </TouchableOpacity>
-          ) : (
-            <View style={styles.headerEditActions}>
-              <TouchableOpacity onPress={toggleSelectAll} style={styles.headerAction}>
-                <Text style={styles.headerActionText}>{isAllSelected ? '선택 해제' : '모두 선택'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleDeleteSelected} style={styles.headerAction}>
-                <Text style={styles.headerDeleteText}>삭제({selectedCount})</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setIsEditMode(false)} style={styles.headerAction}>
-                <Text style={styles.headerDoneText}>완료</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-        
+            <TouchableOpacity onPress={handleDeleteSelected} style={styles.headerAction}>
+              <Text style={styles.headerDeleteText}>삭제({selectedCount})</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setIsEditMode(false)} style={styles.headerAction}>
+              <Text style={styles.headerDoneText}>완료</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.headerBody}>
         {/* Search Bar */}
         <View style={styles.searchContainer}>
           <View style={styles.searchIcon}>
@@ -404,22 +423,36 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.backgroundGray,
   },
-  header: {
+  topBar: {
+    backgroundColor: COLORS.background,
     padding: 16,
-    backgroundColor: COLORS.backgroundGray,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
-  },
-  titleRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+    justifyContent: 'center',
   },
-  title: {
-    fontSize: 28,
+  topBarTitle: {
+    fontSize: 18,
     fontWeight: 'bold',
     color: COLORS.text,
+  },
+  topBarLeft: {
+    position: 'absolute',
+    left: 12,
+    padding: 4,
+  },
+  topBarRight: {
+    position: 'absolute',
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerBody: {
+    padding: 16,
+    backgroundColor: COLORS.backgroundGray,
+    marginLeft: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
   headerEditActions: {
     flexDirection: 'row',

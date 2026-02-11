@@ -43,6 +43,27 @@ export type CheckUsernameResponse = {
   };
 };
 
+export type HealthChatMessage = {
+  role: 'user' | 'assistant';
+  text: string;
+};
+
+export type HealthChatRequest = {
+  message: string;
+  history?: HealthChatMessage[];
+  userContext?: Record<string, any> | null;
+};
+
+export type HealthChatResponse = {
+  ok: boolean;
+  message?: string;
+  data?: {
+    reply: string;
+    model?: string;
+  };
+  [key: string]: any;
+};
+
 function normalizeUri(uri: string) {
   // On iOS, ImagePicker returns 'file://', Android may return content or file scheme.
   // For fetch multipart with RN, keep URI as-is.
@@ -98,6 +119,30 @@ export async function pingHealth(): Promise<AnalyzeResponse> {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`Health 실패 HTTP ${res.status}`);
   return json as AnalyzeResponse;
+}
+
+export async function chatHealth(payload: HealthChatRequest): Promise<HealthChatResponse> {
+  if (!BASE_URL) {
+    throw new Error(
+      '환경변수 BASE_URL이 비어있습니다. .env에 BASE_URL(예: https://<project-ref>.functions.supabase.co)과 SUPABASE_ANON_KEY를 설정하고 Metro를 재시작하세요.'
+    );
+  }
+
+  const res = await fetch(`${BASE_URL}${ENDPOINTS.healthChat}`, {
+    method: 'POST',
+    headers: {
+      ...buildSupabaseHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json?.ok) {
+    const message = json?.message || json?.error || `HTTP ${res.status}`;
+    throw new Error(message);
+  }
+  return json as HealthChatResponse;
 }
 
 export async function signupDevice(payload: SignupDeviceRequest): Promise<SignupDeviceResponse> {
