@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { COLORS } from '../../constants/colors';
+import { COLORS, RADIUS } from '../../constants/colors';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -11,10 +11,11 @@ import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
 import { supabase } from '../../services/supabaseClient';
 import { getMonthlyAverageDietScoreRemote, getMonthlyMealPlanCountRemote, getMonthlyScanCountRemote, getSessionUserId, updateMyProfileAvatarRemote } from '../../services/userData';
-import { MONTHLY_MEAL_PLAN_LIMIT, MONTHLY_SCAN_LIMIT } from '../../config';
 import { pickAvatarFromLibrary } from '../../services/imagePicker';
 import { markUserInitiatedSignOut } from '../../services/authSignals';
 import { GRADE_COLORS } from '../../types/user';
+import { getPlanLabel, getPlanLimits, normalizePlanId } from '../../services/plans';
+import { useTheme } from '../../theme/ThemeProvider';
 
 function scoreToColor(score: number) {
   if (score >= 85) return GRADE_COLORS.very_good;
@@ -27,6 +28,7 @@ function scoreToColor(score: number) {
 export default function ProfileScreen() {
   const navigation = useNavigation();
   const { alert } = useAppAlert();
+  const { colors, isDark } = useTheme();
 
   const profile = useUserStore(state => state.profile);
   const clearAllData = useUserStore(state => state.clearAllData);
@@ -40,14 +42,33 @@ export default function ProfileScreen() {
   const [isLoadingAvatar, setIsLoadingAvatar] = useState(false);
 
   const userName = profile?.nickname || profile?.name || '사용자';
-  const plan = profile?.plan_id ? String(profile.plan_id) : 'Free';
+  const plan = getPlanLabel(profile?.plan_id);
+  const normalizedPlan = normalizePlanId(profile?.plan_id);
+  const planLimits = getPlanLimits(profile?.plan_id);
+  const isPremiumUser = normalizedPlan === 'plus' || normalizedPlan === 'pro' || normalizedPlan === 'master';
+  const premiumBannerTitle =
+    normalizedPlan === 'pro'
+      ? 'Pro 플랜 사용 중'
+      : normalizedPlan === 'plus'
+        ? '프리미엄 사용 중'
+        : normalizedPlan === 'master'
+          ? 'Master 플랜 사용 중'
+          : '프리미엄으로 업그레이드';
+  const premiumBannerDesc =
+    normalizedPlan === 'pro'
+      ? '이미 프리미엄 Pro 플랜을 사용 중이에요.'
+      : normalizedPlan === 'plus'
+        ? '이미 프리미엄 Plus 플랜을 사용 중이에요.'
+        : normalizedPlan === 'master'
+          ? '모든 프리미엄 기능을 이미 사용할 수 있어요.'
+          : 'Plus/Pro 플랜으로 월 제공량을 늘릴 수 있어요.';
 
   const usedThisMonth = typeof monthlyScanCount === 'number' ? monthlyScanCount : null;
-  const remainingThisMonth = typeof usedThisMonth === 'number' ? Math.max(0, MONTHLY_SCAN_LIMIT - usedThisMonth) : null;
+  const remainingThisMonth = typeof usedThisMonth === 'number' ? Math.max(0, planLimits.monthlyScanLimit - usedThisMonth) : null;
   const usedMealPlanThisMonth = typeof monthlyMealPlanCount === 'number' ? monthlyMealPlanCount : null;
   const remainingMealPlanThisMonth =
-    typeof usedMealPlanThisMonth === 'number' ? Math.max(0, MONTHLY_MEAL_PLAN_LIMIT - usedMealPlanThisMonth) : null;
-  const monthlyScoreColor = typeof monthlyDietScore === 'number' ? scoreToColor(monthlyDietScore) : COLORS.text;
+    typeof usedMealPlanThisMonth === 'number' ? Math.max(0, planLimits.monthlyMealPlanLimit - usedMealPlanThisMonth) : null;
+  const monthlyScoreColor = typeof monthlyDietScore === 'number' ? scoreToColor(monthlyDietScore) : colors.text;
 
   const avatarPath = profile?.avatarPath || null;
 
@@ -153,10 +174,10 @@ export default function ProfileScreen() {
   const menuItems = [
     { iconName: 'person', label: '내 정보', route: 'PersonalInfo' },
     { iconName: 'history', label: '히스토리', route: 'History' },
-    { iconName: 'notifications', label: '알림 설정', route: 'Notifications' },
+    { iconName: 'notifications', label: '알림 설정', route: 'NotificationSettings' },
     { iconName: 'security', label: '개인정보 및 보안', route: 'Privacy' },
     { iconName: 'credit-card', label: '구독 관리', route: 'Subscription' },
-    { iconName: 'help-outline', label: '고객 센터', route: 'Help' },
+    { iconName: 'help-outline', label: '고객 센터', route: 'HelpCenter' },
   ];
 
   const handleLogout = () => {
@@ -191,13 +212,13 @@ export default function ProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header Profile Section */}
         <View style={styles.header}>
           <View style={styles.avatarBlock}>
             <TouchableOpacity
-              style={styles.avatarContainer}
+              style={[styles.avatarContainer, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }]}
               onPress={handleEditAvatar}
               activeOpacity={0.8}
               accessibilityRole="button"
@@ -206,14 +227,14 @@ export default function ProfileScreen() {
               {avatarUrl ? (
                 <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
               ) : isUpdatingAvatar || isLoadingAvatar ? (
-                <ActivityIndicator color={COLORS.primary} />
+                <ActivityIndicator color={colors.primary} />
               ) : (
-                <AppIcon name="add" size={30} color={COLORS.text} />
+                <AppIcon name="add" size={30} color={colors.text} />
               )}
             </TouchableOpacity>
           </View>
           <View style={styles.userInfo}>
-              <Text style={styles.userName}>{userName} 님</Text>
+              <Text style={[styles.userName, { color: colors.text }]}>{userName} 님</Text>
             <View style={styles.planBadge}>
               <Badge variant="secondary" text={plan + ' 플랜'} />
               <TouchableOpacity
@@ -225,50 +246,58 @@ export default function ProfileScreen() {
                 <Badge
                   variant="outline"
                   text={`이번 달 식단 점수 ${typeof monthlyDietScore === 'number' ? `${monthlyDietScore}점` : '-'}`}
-                  textStyle={{ color: typeof monthlyDietScore === 'number' ? monthlyScoreColor : COLORS.textSecondary }}
+                  textStyle={{ color: typeof monthlyDietScore === 'number' ? monthlyScoreColor : colors.textSecondary }}
                 />
               </TouchableOpacity>
             </View>
           </View>
-          <TouchableOpacity style={styles.settingsButton} onPress={() => navigation.navigate('Settings' as never)}>
-            <AppIcon name="settings" size={24} color={COLORS.text} />
+          <TouchableOpacity style={[styles.settingsButton, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }]} onPress={() => navigation.navigate('Settings' as never)}>
+            <AppIcon name="settings" size={24} color={colors.text} />
           </TouchableOpacity>
         </View>
 
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
           <Card style={styles.statCard}>
-            <Text style={styles.statValue}>{typeof remainingThisMonth === 'number' ? String(remainingThisMonth) : '-'}</Text>
-            <Text style={styles.statLabel}>이번 달 남은 스캔</Text>
+            <Text style={[styles.statValue, { color: colors.primary }]}>{typeof remainingThisMonth === 'number' ? String(remainingThisMonth) : '-'}</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>이번 달 남은 스캔</Text>
           </Card>
 
           <Card style={styles.statCard}>
-            <Text style={styles.statValue}>
+            <Text style={[styles.statValue, { color: colors.primary }]}>
               {typeof remainingMealPlanThisMonth === 'number' ? String(remainingMealPlanThisMonth) : '-'}
             </Text>
-            <Text style={styles.statLabel}>이번 달 남은 식단 생성</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>이번 달 남은 식단 생성</Text>
           </Card>
         </View>
 
         {/* Premium Banner */}
-        <TouchableOpacity style={styles.premiumBanner}>
+        <TouchableOpacity style={[
+          styles.premiumBanner,
+          { backgroundColor: colors.surface, borderColor: colors.border, shadowColor: colors.shadow },
+          !isDark && styles.premiumBannerLight,
+        ]} onPress={() => navigation.navigate((isPremiumUser ? 'Subscription' : 'UpgradePlan') as never)}>
           <View style={styles.premiumContent}>
             <View style={styles.premiumHeader}>
-              <AppIcon name="workspace-premium" size={24} color="gold" />
-              <Text style={styles.premiumTitle}>프리미엄으로 업그레이드</Text>
+              <AppIcon name="workspace-premium" size={24} color={isPremiumUser ? colors.primary : colors.warningDark} />
+              <Text style={[styles.premiumTitle, { color: colors.text }]}>{premiumBannerTitle}</Text>
             </View>
-            <Text style={styles.premiumDesc}>무제한 스캔과 상세 분석 리포트를 받아보세요.</Text>
+              <Text style={[styles.premiumDesc, { color: colors.textSecondary }]}>{premiumBannerDesc}</Text>
           </View>
-          <AppIcon name="chevron-right" size={26} color="white" />
+          <View style={styles.premiumRightCol}>
+            {isPremiumUser ? <Badge variant="secondary" text="이미 사용 중" /> : null}
+            <AppIcon name="chevron-right" size={26} color={colors.textSecondary} />
+          </View>
         </TouchableOpacity>
 
         {/* Menu Items */}
-        <View style={styles.menuContainer}>
+        <View style={[styles.menuContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           {menuItems.map((item, index) => (
             <TouchableOpacity
               key={index}
               style={[
                 styles.menuItem,
+                { borderBottomColor: colors.border },
                 index === menuItems.length - 1 && styles.menuItemLast,
               ]}
               onPress={() => {
@@ -284,27 +313,39 @@ export default function ProfileScreen() {
                   navigation.navigate('Privacy' as never);
                   return;
                 }
+                if (item.route === 'NotificationSettings') {
+                  navigation.navigate('NotificationSettings' as never);
+                  return;
+                }
+                if (item.route === 'Subscription') {
+                  navigation.navigate('Subscription' as never);
+                  return;
+                }
+                if (item.route === 'HelpCenter') {
+                  navigation.navigate('HelpCenter' as never);
+                  return;
+                }
                 alert({ title: item.label, message: '현재 버전에서는 준비 중인 기능입니다.' });
               }}
             >
               <View style={styles.menuItemLeft}>
-                <View style={styles.menuIconBox}>
-                  <AppIcon name={item.iconName} size={20} color={COLORS.text} />
+                <View style={[styles.menuIconBox, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }]}>
+                  <AppIcon name={item.iconName} size={20} color={colors.text} />
                 </View>
-                <Text style={styles.menuLabel}>{item.label}</Text>
+                <Text style={[styles.menuLabel, { color: colors.text }]}>{item.label}</Text>
               </View>
-              <AppIcon name="chevron-right" size={22} color={COLORS.textSecondary} />
+              <AppIcon name="chevron-right" size={22} color={colors.textSecondary} />
             </TouchableOpacity>
           ))}
         </View>
 
         {/* Logout Button */}
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <AppIcon name="logout" size={20} color={COLORS.destructive} />
-          <Text style={styles.logoutText}>로그아웃</Text>
+          <AppIcon name="logout" size={20} color={colors.destructive} />
+          <Text style={[styles.logoutText, { color: colors.destructive }]}>로그아웃</Text>
         </TouchableOpacity>
 
-        <Text style={styles.versionText}>버전 1.0.0</Text>
+        <Text style={[styles.versionText, { color: colors.textSecondary }]}>버전 1.0.0</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -316,24 +357,24 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.backgroundGray,
   },
   scrollContent: {
-    padding: 16,
+    padding: 20,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   avatarBlock: {
     alignItems: 'center',
     marginRight: 16,
   },
   avatarContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: COLORS.background,
     borderWidth: 1,
-    borderColor: COLORS.text,
+    borderColor: COLORS.border,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
@@ -352,8 +393,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   userName: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 22,
+    fontWeight: '800',
     color: COLORS.text,
     marginBottom: 4,
   },
@@ -368,7 +409,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   settingsButton: {
-    padding: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   statsContainer: {
     flexDirection: 'row',
@@ -380,7 +428,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: '48%',
     alignItems: 'center',
-    padding: 16,
+    padding: 18,
   },
   statValue: {
     fontSize: 24,
@@ -393,21 +441,30 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
   },
   premiumBanner: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 16,
+    backgroundColor: COLORS.primaryDark,
+    borderRadius: RADIUS.lg,
     padding: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
-    shadowColor: COLORS.primary,
+    shadowColor: COLORS.shadow,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  premiumBannerLight: {
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   premiumContent: {
     flex: 1,
+  },
+  premiumRightCol: {
+    alignItems: 'flex-end',
+    gap: 6,
   },
   premiumHeader: {
     flexDirection: 'row',
@@ -417,7 +474,7 @@ const styles = StyleSheet.create({
   },
   premiumTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '800',
     color: 'white',
   },
   premiumDesc: {
@@ -425,8 +482,8 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.9)',
   },
   menuContainer: {
-    backgroundColor: 'white',
-    borderRadius: 16,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
     padding: 8,
     marginBottom: 16,
     borderWidth: 1,
@@ -449,13 +506,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 8,
+    borderWidth: 1,
     backgroundColor: COLORS.background,
     justifyContent: 'center',
     alignItems: 'center',
   },
   menuLabel: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '700',
     color: COLORS.text,
   },
   menuItemLast: {

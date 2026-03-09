@@ -1,6 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle, View, type StyleProp } from 'react-native';
-import { COLORS, RADIUS } from '../../constants/colors';
+import { RADIUS } from '../../constants/colors';
+import { useTheme } from '../../theme/ThemeProvider';
 
 interface ButtonProps {
   onPress: () => void | Promise<void>;
@@ -27,6 +28,7 @@ export const Button: React.FC<ButtonProps> = ({
   style,
   textStyle,
 }) => {
+  const { colors, isDark } = useTheme();
   const pendingRef = useRef(false);
   const [pending, setPending] = useState(false);
 
@@ -53,41 +55,44 @@ export const Button: React.FC<ButtonProps> = ({
   const isDisabled = disabled || loading || pending;
 
   const getBackgroundColor = () => {
-    if (isDisabled) return '#E5E7EB';
+    if (isDisabled) return colors.border;
     switch (variant) {
-      case 'primary': return COLORS.primary;
-      case 'outline': return 'transparent';
-      case 'ghost': return 'transparent';
-      case 'danger': return COLORS.danger;
-      default: return COLORS.primary;
+      case 'primary': return isDark ? colors.surfaceMuted : colors.primary;
+      case 'outline': return isDark ? colors.surfaceElevated : 'transparent';
+      case 'ghost': return isDark ? colors.surface : colors.surfaceElevated;
+      case 'danger': return isDark ? colors.red100 : colors.danger;
+      default: return isDark ? colors.surfaceMuted : colors.primary;
     }
   };
 
   const getBorderColor = () => {
-    if (isDisabled) return '#E5E7EB';
+    if (isDisabled) return colors.border;
     switch (variant) {
-      case 'outline': return COLORS.border;
+      case 'primary': return isDark ? colors.surfaceMuted : 'transparent';
+      case 'outline': return isDark ? colors.surfaceMuted : colors.primary;
+      case 'ghost': return colors.surfaceMuted;
+      case 'danger': return isDark ? colors.red200 : 'transparent';
       default: return 'transparent';
     }
   };
 
   const getTextColor = () => {
-    if (isDisabled) return '#9CA3AF';
+    if (isDisabled) return colors.textSecondary;
     switch (variant) {
-      case 'primary': return '#FFFFFF';
-      case 'outline': return COLORS.primary;
-      case 'ghost': return COLORS.textGray;
-      case 'danger': return '#FFFFFF';
-      default: return '#FFFFFF';
+      case 'primary': return isDark ? colors.text : '#FFFFFF';
+      case 'outline': return isDark ? colors.text : colors.primary;
+      case 'ghost': return colors.text;
+      case 'danger': return isDark ? colors.danger : '#FFFFFF';
+      default: return isDark ? colors.text : '#FFFFFF';
     }
   };
 
   const getPadding = () => {
     switch (size) {
-      case 'sm': return { paddingVertical: 8, paddingHorizontal: 12 };
-      case 'md': return { paddingVertical: 12, paddingHorizontal: 16 };
+      case 'sm': return { paddingVertical: 10, paddingHorizontal: 14 };
+      case 'md': return { paddingVertical: 13, paddingHorizontal: 18 };
       case 'lg': return { paddingVertical: 16, paddingHorizontal: 24 };
-      default: return { paddingVertical: 12, paddingHorizontal: 16 };
+      default: return { paddingVertical: 13, paddingHorizontal: 18 };
     }
   };
 
@@ -103,7 +108,7 @@ export const Button: React.FC<ButtonProps> = ({
         {
           backgroundColor: getBackgroundColor(),
           borderColor: getBorderColor(),
-          borderWidth: variant === 'outline' ? 1 : 0,
+          borderWidth: variant === 'outline' || variant === 'ghost' || (isDark && (variant === 'primary' || variant === 'danger')) ? 1 : 0,
           ...getPadding(),
         },
         style,
@@ -149,12 +154,12 @@ export const Button: React.FC<ButtonProps> = ({
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: RADIUS.sm,
+    borderRadius: RADIUS.md,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
   },
   text: {
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

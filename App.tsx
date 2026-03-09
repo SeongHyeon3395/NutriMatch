@@ -1,20 +1,47 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { enableScreens } from 'react-native-screens';
 import RootNavigator from './src/navigation/RootNavigator';
-import { COLORS } from './src/constants/colors';
 import { AppAlertProvider } from './src/components/ui/AppAlert';
+import { AppToastProvider } from './src/components/ui/AppToast';
+import { initTelemetry } from './src/services/telemetry';
+import { startSyncQueueListener } from './src/services/syncQueue';
+import { getSessionUserId } from './src/services/userData';
+import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 
 enableScreens(true);
 
 export default function App() {
+  useEffect(() => {
+    initTelemetry();
+    startSyncQueueListener(() => getSessionUserId().catch(() => null));
+  }, []);
+
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
-      <AppAlertProvider>
-        <RootNavigator />
-      </AppAlertProvider>
+      <ThemeProvider>
+        <AppShell />
+      </ThemeProvider>
     </SafeAreaProvider>
+  );
+}
+
+function AppShell() {
+  const { colors, isDark } = useTheme();
+
+  return (
+    <>
+      <StatusBar
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={colors.background}
+        translucent={false}
+      />
+      <AppAlertProvider>
+        <AppToastProvider>
+          <RootNavigator />
+        </AppToastProvider>
+      </AppAlertProvider>
+    </>
   );
 }

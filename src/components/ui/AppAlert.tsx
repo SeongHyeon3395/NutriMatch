@@ -1,9 +1,10 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { COLORS, SPACING, RADIUS } from '../../constants/colors';
+import { SPACING, RADIUS } from '../../constants/colors';
 import { Card } from './Card';
 import { Button } from './Button';
 import { AppIcon } from './AppIcon';
+import { useTheme } from '../../theme/ThemeProvider';
 
 export type AppAlertActionVariant = 'primary' | 'outline' | 'danger';
 
@@ -29,6 +30,7 @@ interface AppAlertContextValue {
 const AppAlertContext = createContext<AppAlertContextValue | null>(null);
 
 export function AppAlertProvider({ children }: { children: React.ReactNode }) {
+  const { colors } = useTheme();
   const [visible, setVisible] = useState(false);
   const [options, setOptions] = useState<AppAlertOptions>({ title: '' });
 
@@ -42,7 +44,7 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const actions = useMemo<AppAlertAction[]>(() => {
-    if (options.actions && options.actions.length > 0) return options.actions;
+    if (Array.isArray(options.actions)) return options.actions;
     return [{ text: '확인', variant: 'primary' }];
   }, [options.actions]);
 
@@ -55,6 +57,7 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
   );
 
   const isTwoActions = actions.length === 2;
+  const hasActions = actions.length > 0;
 
   return (
     <AppAlertContext.Provider value={{ alert, dismiss }}>
@@ -62,44 +65,46 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
       <Modal transparent visible={visible} animationType="fade" onRequestClose={dismiss}>
         <View style={styles.modalRoot}>
           <Pressable style={styles.backdropPressable} onPress={dismiss}>
-            <View style={styles.backdrop} />
+            <View style={[styles.backdrop, { backgroundColor: colors.text }]} />
           </Pressable>
 
           <View style={styles.center} pointerEvents="box-none">
-            <Card style={styles.alertCard}>
+            <Card style={styles.alertCard} variant="elevated">
               <View style={styles.titleRow}>
-                <Text style={styles.title}>{options.title}</Text>
+                <Text style={[styles.title, { color: colors.text }]}>{options.title}</Text>
                 <TouchableOpacity onPress={dismiss} style={styles.closeButton} accessibilityRole="button">
-                  <AppIcon name="close" size={20} color={COLORS.textGray} />
+                  <AppIcon name="close" size={20} color={colors.textGray} />
                 </TouchableOpacity>
               </View>
-              {!!options.message && <Text style={styles.message}>{options.message}</Text>}
+              {!!options.message && <Text style={[styles.message, { color: colors.textSecondary }]}>{options.message}</Text>}
               {!!options.content && <View style={styles.content}>{options.content}</View>}
 
-              <ScrollView
-                style={styles.actionsScroll}
-                contentContainerStyle={[styles.actions, isTwoActions && styles.actionsRow, styles.actionsContent]}
-              >
-                {actions.map((action, idx) => (
-                  <Button
-                    key={`${action.text}-${idx}`}
-                    title={action.description ? undefined : action.text}
-                    children={
-                      action.description ? (
-                        <View style={styles.actionTextStack}>
-                          <Text style={styles.actionMainText}>{action.text}</Text>
-                          <Text style={styles.actionSubText}>{action.description}</Text>
-                        </View>
-                      ) : undefined
-                    }
-                    onPress={() => handleActionPress(action)}
-                    variant={action.variant || 'primary'}
-                    size={actions.length > 5 ? 'sm' : 'md'}
-                    style={isTwoActions ? styles.actionButtonHalf : styles.actionButtonFull}
-                    textStyle={styles.actionTitleText}
-                  />
-                ))}
-              </ScrollView>
+              {hasActions ? (
+                <ScrollView
+                  style={styles.actionsScroll}
+                  contentContainerStyle={[styles.actions, isTwoActions && styles.actionsRow, styles.actionsContent]}
+                >
+                  {actions.map((action, idx) => (
+                    <Button
+                      key={`${action.text}-${idx}`}
+                      title={action.description ? undefined : action.text}
+                      children={
+                        action.description ? (
+                          <View style={styles.actionTextStack}>
+                            <Text style={[styles.actionMainText, { color: colors.text }]}>{action.text}</Text>
+                            <Text style={[styles.actionSubText, { color: colors.textSecondary }]}>{action.description}</Text>
+                          </View>
+                        ) : undefined
+                      }
+                      onPress={() => handleActionPress(action)}
+                      variant={action.variant || 'primary'}
+                      size={actions.length > 5 ? 'sm' : 'md'}
+                      style={isTwoActions ? styles.actionButtonHalf : styles.actionButtonFull}
+                      textStyle={styles.actionTitleText}
+                    />
+                  ))}
+                </ScrollView>
+              ) : null}
             </Card>
           </View>
         </View>
@@ -125,7 +130,6 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     flex: 1,
-    backgroundColor: COLORS.text,
     opacity: 0.4,
   },
   center: {
@@ -149,7 +153,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 18,
     fontWeight: '700',
-    color: COLORS.text,
     marginBottom: 0,
   },
   closeButton: {
@@ -161,7 +164,6 @@ const styles = StyleSheet.create({
   },
   message: {
     fontSize: 14,
-    color: COLORS.textSecondary,
     lineHeight: 20,
   },
   content: {
@@ -185,13 +187,11 @@ const styles = StyleSheet.create({
   },
   actionMainText: {
     fontWeight: '700',
-    color: COLORS.text,
   },
   actionSubText: {
     marginTop: 2,
     fontSize: 12,
     lineHeight: 16,
-    color: COLORS.textSecondary,
   },
   actionTitleText: {
     // title-only button text style override (keeps current look)

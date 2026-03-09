@@ -36,8 +36,61 @@ const FOOD_LOGS_KEY = '@nutrimatch_food_logs';
 const BODY_LOGS_KEY = '@nutrimatch_body_logs';
 const MANUAL_MEAL_LOGS_KEY = '@nutrimatch_manual_meal_logs';
 
+const FOOD_LOGS_MAX = 50;
+
 function scopedKey(base: string, userId?: string | null) {
   return userId ? `${base}:${userId}` : base;
+}
+
+function isRemoteHttpUrl(value: unknown): value is string {
+  return typeof value === 'string' && /^https?:\/\//i.test(value);
+}
+
+function isLocalDeviceUri(value: unknown): value is string {
+  return typeof value === 'string' && /^(file|content):\/\//i.test(value);
+}
+
+function mergeFoodLogImageUri(nextImageUri: unknown, prevImageUri: unknown): string {
+  const next = typeof nextImageUri === 'string' ? nextImageUri.trim() : '';
+  const prev = typeof prevImageUri === 'string' ? prevImageUri.trim() : '';
+
+  if (isRemoteHttpUrl(next)) return next;
+  if (next && !isLocalDeviceUri(next)) return next;
+  if (!next && prev) return prev;
+  if (isLocalDeviceUri(next) && isRemoteHttpUrl(prev)) return prev;
+  return next || prev;
+}
+
+function mergeFoodLogsWithCachedImages(nextLogs: FoodLog[], currentLogs: FoodLog[]): FoodLog[] {
+  const currentMap = new Map(currentLogs.map((log) => [String(log?.id || ''), log]));
+
+  return nextLogs.map((log) => {
+    const key = String(log?.id || '');
+    const current = currentMap.get(key);
+    if (!current) return log;
+
+    const mergedImageUri = mergeFoodLogImageUri(log?.imageUri, current?.imageUri);
+    if (mergedImageUri === (log?.imageUri || '')) return log;
+
+    return {
+      ...log,
+      imageUri: mergedImageUri,
+    };
+  });
+}
+
+function normalizeFoodLogs(logs: FoodLog[]): FoodLog[] {
+  const arr = Array.isArray(logs) ? logs.filter(Boolean) : [];
+  if (arr.length <= FOOD_LOGS_MAX) return arr;
+
+  const safeTime = (t: any) => {
+    const s = typeof t === 'string' ? t : '';
+    const ms = Date.parse(s);
+    return Number.isFinite(ms) ? ms : 0;
+  };
+
+  const sorted = [...arr].sort((a, b) => safeTime(a?.timestamp) - safeTime(b?.timestamp));
+  return sorted.slice(-FOOD_LOGS_MAX);
 }
 
 export const useUserStore = create<UserState>((set, get) => ({
@@ -108,7 +161,7 @@ export const useUserStore = create<UserState>((set, get) => ({
   },
   
   addFoodLog: async (log: FoodLog) => {
-    const logs = [...get().foodLogs, log];
+    const logs = normalizeFoodLogs([...get().foodLogs, log]);
     const userId = get().profile?.id;
     await AsyncStorage.setItem(scopedKey(FOOD_LOGS_KEY, userId), JSON.stringify(logs));
     set({ foodLogs: logs });
@@ -119,12 +172,12 @@ export const useUserStore = create<UserState>((set, get) => ({
       const userId = get().profile?.id;
       const stored = await AsyncStorage.getItem(scopedKey(FOOD_LOGS_KEY, userId));
       if (stored) {
-        set({ foodLogs: JSON.parse(stored) });
+        set({ foodLogs: normalizeFoodLogs(JSON.parse(stored)) });
         return;
       }
       // legacy fallback
       const legacy = await AsyncStorage.getItem(FOOD_LOGS_KEY);
-      if (legacy) set({ foodLogs: JSON.parse(legacy) });
+      if (legacy) set({ foodLogs: normalizeFoodLogs(JSON.parse(legacy)) });
     } catch (e) {
       console.error('Failed to load food logs', e);
     }
@@ -132,8 +185,10 @@ export const useUserStore = create<UserState>((set, get) => ({
 
   setFoodLogs: async (logs: FoodLog[]) => {
     const userId = get().profile?.id;
-    await AsyncStorage.setItem(scopedKey(FOOD_LOGS_KEY, userId), JSON.stringify(logs));
-    set({ foodLogs: logs });
+    const current = Array.isArray(get().foodLogs) ? get().foodLogs : [];
+    const next = normalizeFoodLogs(mergeFoodLogsWithCachedImages(logs, current));
+    await AsyncStorage.setItem(scopedKey(FOOD_LOGS_KEY, userId), JSON.stringify(next));
+    set({ foodLogs: next });
   },
   
   addBodyLog: async (log: BodyLog) => {

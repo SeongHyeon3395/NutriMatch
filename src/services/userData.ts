@@ -29,8 +29,20 @@ type AppUserRow = {
   target_carbs?: number | string | null;
   target_protein?: number | string | null;
   target_fat?: number | string | null;
+  plan_id?: string | null;
+  chat_tokens_month?: string | null;
+  chat_tokens_used?: number | string | null;
+  theme_mode?: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type MonthlyChatTokenStatus = {
+  month: string;
+  plan_id: string;
+  used: number;
+  limit_value: number;
+  remaining: number;
 };
 
 type FoodLogRow = {
@@ -72,21 +84,29 @@ function mapAppUserRowToProfile(row: AppUserRow, email: string): UserProfile {
 
     avatarPath: row.avatar_path ?? undefined,
 
-    bodyGoal: (row.body_goal as any) || 'maintenance',
-    healthDiet: (row.health_diet as any) || 'none_health',
-    lifestyleDiet: (row.lifestyle_diet as any) || 'none_lifestyle',
+    bodyGoal: ((row as any).body_goal as any) ?? 'maintenance',
+    healthDiet: ((row as any).health_diet as any) ?? 'none_health',
+    lifestyleDiet: ((row as any).lifestyle_diet as any) ?? 'none_lifestyle',
     allergens: Array.isArray(row.allergens) ? row.allergens : [],
 
     currentWeight: parseNumeric(row.current_weight),
     targetWeight: parseNumeric(row.target_weight),
     height: parseNumeric(row.height),
     age: parseNumeric(row.age),
-    gender: (row.gender as any) || undefined,
+    gender: ((row as any).gender as any) ?? undefined,
 
     targetCalories: parseNumeric(row.target_calories),
     targetCarbs: parseNumeric(row.target_carbs),
     targetProtein: parseNumeric(row.target_protein),
     targetFat: parseNumeric(row.target_fat),
+
+    plan_id: ((row as any).plan_id as any) ?? 'free',
+    chatTokensMonth: typeof (row as any).chat_tokens_month === 'string' ? (row as any).chat_tokens_month : undefined,
+    chatTokensUsed: parseNumeric((row as any).chat_tokens_used),
+    themeMode:
+      (row as any).theme_mode === 'light' || (row as any).theme_mode === 'dark' || (row as any).theme_mode === 'system'
+        ? ((row as any).theme_mode as any)
+        : 'system',
 
     onboardingCompleted: Boolean(row.onboarding_completed),
     createdAt: row.created_at,
@@ -117,6 +137,9 @@ function mapProfileUpdatesToAppUserUpdates(updates: Partial<UserProfile>) {
   if (updates.targetCarbs !== undefined) out.target_carbs = updates.targetCarbs;
   if (updates.targetProtein !== undefined) out.target_protein = updates.targetProtein;
   if (updates.targetFat !== undefined) out.target_fat = updates.targetFat;
+
+  if (updates.plan_id !== undefined) out.plan_id = updates.plan_id;
+  if (updates.themeMode !== undefined) out.theme_mode = updates.themeMode;
 
   return out;
 }
@@ -193,6 +216,7 @@ export async function deleteFoodLogsRemote(ids: string[]) {
 
 const FOOD_IMAGES_BUCKET = 'food-images';
 const PROFILE_AVATARS_BUCKET = 'profile-avatars';
+const attemptedFoodImageRepairIds = new Set<string>();
 
 function toUploadableUri(uri: string) {
   const u = String(uri || '').trim();
@@ -274,13 +298,18 @@ async function uploadFoodImage(fileUri: string, userId: string) {
   const uploadUri = toUploadableUri(fileUri);
   if (!uploadUri) throw new Error('이미지 URI가 비어있습니다.');
 
-  const resp = await fetch(uploadUri);
-  const blob = await resp.blob();
+  let body: any = null;
+  try {
+    body = await blobFromUri(uploadUri);
+  } catch {
+    const resp = await fetch(uploadUri);
+    body = await resp.blob();
+  }
 
   const name = `${Date.now()}_${Math.random().toString(16).slice(2)}.jpg`;
   const path = `${userId}/${name}`;
 
-  const { error } = await client.storage.from(FOOD_IMAGES_BUCKET).upload(path, blob as any, {
+  const { error } = await client.storage.from(FOOD_IMAGES_BUCKET).upload(path, body as any, {
     contentType: 'image/jpeg',
     upsert: false,
   });
@@ -355,6 +384,48 @@ function mapBodyLogRow(row: BodyLogRow): BodyLog {
   };
 }
 
+function isRemoteHttpUrl(value: unknown): value is string {
+  return typeof value === 'string' && /^https?:\/\//i.test(value);
+}
+
+function isLocalDeviceUri(value: unknown): value is string {
+  return typeof value === 'string' && /^(file|content):\/\//i.test(value);
+}
+
+function normalizeStoragePath(value: unknown): string {
+  if (typeof value !== 'string') return '';
+
+  let v = value.trim();
+  if (!v) return '';
+
+  try {
+    v = decodeURIComponent(v);
+  } catch {
+    // ignore decode failure
+  }
+
+  if (isRemoteHttpUrl(v)) {
+    const match = v.match(/https?:\/\/[^/]+\/storage\/v1\/object\/(?:sign|public|authenticated)\/food-images\/([^?#]+)/i);
+    if (match?.[1]) {
+      v = match[1];
+    }
+  }
+
+  v = v.replace(/[?#].*$/, '');
+  v = v.replace(/^\/+/, '');
+  v = v.replace(/^food-images\//i, '');
+  v = v.replace(/^storage\/v1\/object\/(?:sign|public|authenticated)\/food-images\//i, '');
+
+  return v.trim();
+}
+
+function looksLikeStoragePath(value: unknown): value is string {
+  const normalized = normalizeStoragePath(value);
+  if (!normalized) return false;
+  if (/^https?:\/\//i.test(normalized) || /^(file|content):\/\//i.test(normalized)) return false;
+  return normalized.includes('/') && !normalized.includes(' ');
+}
+
 function requireSupabase() {
   if (!supabase) {
     throw new Error('Supabase 설정이 없습니다. (로컬 모드)');
@@ -395,6 +466,58 @@ function extractMissingColumnFromPgrst204(err: any): string | null {
   return null;
 }
 
+async function tryRepairFoodLogImage(row: FoodLogRow): Promise<string | null> {
+  const rowId = String(row?.id || '').trim();
+  const rowUserId = String(row?.user_id || '').trim();
+  const localUri = String(row?.image_uri || '').trim();
+
+  if (!rowId || !rowUserId || !isLocalDeviceUri(localUri)) return null;
+  if (attemptedFoodImageRepairIds.has(rowId)) return null;
+  attemptedFoodImageRepairIds.add(rowId);
+
+  let uploadedPath: string | null = null;
+  try {
+    uploadedPath = await uploadFoodImage(localUri, rowUserId);
+
+    const client = requireSupabase();
+    let updated = false;
+
+    const { error: imagePathError } = await client
+      .from('food_logs')
+      .update({ image_path: uploadedPath } as any)
+      .eq('id', rowId)
+      .eq('user_id', rowUserId);
+
+    if (!imagePathError) {
+      updated = true;
+    } else {
+      const code = String((imagePathError as any)?.code || '');
+      const msg = String((imagePathError as any)?.message || '');
+      const isMissingImagePath = code === '42703' || code === 'PGRST204' || /image_path/i.test(msg);
+
+      if (!isMissingImagePath) throw imagePathError;
+
+      const { error: imageUriError } = await client
+        .from('food_logs')
+        .update({ image_uri: uploadedPath } as any)
+        .eq('id', rowId)
+        .eq('user_id', rowUserId);
+
+      if (imageUriError) throw imageUriError;
+      updated = true;
+    }
+
+    if (!updated) throw new Error('이미지 복구 업데이트에 실패했습니다.');
+
+    return await trySignedUrl(uploadedPath);
+  } catch {
+    if (uploadedPath) {
+      await tryRemoveFromBucket(FOOD_IMAGES_BUCKET, uploadedPath);
+    }
+    return null;
+  }
+}
+
 async function insertFoodLogRowWithFallback(client: ReturnType<typeof requireSupabase>, row: Record<string, any>) {
   const attempted = new Set<string>();
   let current = { ...row };
@@ -417,6 +540,10 @@ async function insertFoodLogRowWithFallback(client: ReturnType<typeof requireSup
     }
 
     attempted.add(missing);
+    if (missing === 'image_path' && typeof current.image_path === 'string' && current.image_path.trim()) {
+      const storagePath = current.image_path.trim();
+      if (!current.image_uri) current.image_uri = storagePath;
+    }
     delete current[missing];
   }
 
@@ -490,6 +617,67 @@ export async function updateMyAppUser(updates: Partial<UserProfile>) {
   return mapAppUserRowToProfile(data as AppUserRow, session?.user?.email || '');
 }
 
+type HealthChatMessageRow = {
+  id: string;
+  user_id: string;
+  role: 'user' | 'assistant' | string;
+  content: string;
+  created_at: string;
+};
+
+export async function fetchMyHealthChatMessagesRemote(limit = 200) {
+  const userId = await getSessionUserId();
+  if (!userId) throw new Error('로그인이 필요합니다.');
+
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('health_chat_messages')
+    .select('id,user_id,role,content,created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+
+  if (error) throw error;
+  return (Array.isArray(data) ? (data as any) : []) as HealthChatMessageRow[];
+}
+
+export async function upsertMyHealthChatMessagesRemote(messages: Array<{ id: string; role: 'user' | 'assistant'; content: string; createdAt?: string }>) {
+  const userId = await getSessionUserId();
+  if (!userId) throw new Error('로그인이 필요합니다.');
+  if (!Array.isArray(messages) || messages.length === 0) return;
+
+  const client = requireSupabase();
+  const rows = messages
+    .filter(m => m && typeof m.id === 'string' && (m.role === 'user' || m.role === 'assistant'))
+    .map(m => ({
+      id: m.id,
+      user_id: userId,
+      role: m.role,
+      content: String(m.content ?? ''),
+      created_at: m.createdAt ?? undefined,
+    }));
+
+  if (rows.length === 0) return;
+
+  const { error } = await client
+    .from('health_chat_messages')
+    .upsert(rows as any, { onConflict: 'id' });
+  if (error) throw error;
+}
+
+export async function deleteMyHealthChatMessagesRemote() {
+  const userId = await getSessionUserId();
+  if (!userId) throw new Error('로그인이 필요합니다.');
+
+  const client = requireSupabase();
+  const { error } = await client
+    .from('health_chat_messages')
+    .delete()
+    .eq('user_id', userId);
+
+  if (error) throw error;
+}
+
 export async function getMyAvatarSignedUrl() {
   const profile = await fetchMyAppUser();
   if (!profile.avatarPath) return null;
@@ -532,7 +720,7 @@ export async function updateMyProfileAvatarRemote(params: {
   return { profile: mapped, signedUrl };
 }
 
-export async function insertFoodLogRemote(log: Omit<FoodLog, 'id'>) {
+export async function insertFoodLogRemote(log: Omit<FoodLog, 'id'> & { id?: string }) {
   const userId = await getSessionUserId();
   if (!userId) throw new Error('로그인이 필요합니다.');
 
@@ -546,7 +734,7 @@ export async function insertFoodLogRemote(log: Omit<FoodLog, 'id'>) {
     imageUriFallback = log.imageUri;
   }
 
-  const id = uuidv4();
+  const id = (log as any)?.id ? String((log as any).id) : uuidv4();
   const row: Record<string, any> = {
     id,
     user_id: userId,
@@ -601,12 +789,45 @@ export async function listFoodLogsRemote(limit = 50) {
   const logs = rows.map(mapFoodLogRow);
   await Promise.all(
     rows.map(async (row, idx) => {
-      const p = row.image_path;
-      if (!p) return;
-      try {
-        logs[idx].imageUri = await trySignedUrl(p);
-      } catch {
-        // ignore
+      const imagePath = normalizeStoragePath(row.image_path);
+      const imageUri = typeof row.image_uri === 'string' ? row.image_uri.trim() : '';
+
+      if (imagePath) {
+        try {
+          logs[idx].imageUri = await trySignedUrl(imagePath);
+          return;
+        } catch {
+          // ignore and continue fallback resolution
+        }
+      }
+
+      if (isRemoteHttpUrl(imageUri)) {
+        const normalizedRemotePath = normalizeStoragePath(imageUri);
+        if (looksLikeStoragePath(normalizedRemotePath)) {
+          try {
+            logs[idx].imageUri = await trySignedUrl(normalizedRemotePath);
+            return;
+          } catch {
+            // ignore and fallback to raw URL below
+          }
+        }
+
+        logs[idx].imageUri = imageUri;
+        return;
+      }
+
+      if (looksLikeStoragePath(imageUri)) {
+        try {
+          logs[idx].imageUri = await trySignedUrl(normalizeStoragePath(imageUri));
+          return;
+        } catch {
+          // ignore
+        }
+      }
+
+      if (isLocalDeviceUri(imageUri)) {
+        const repairedUrl = await tryRepairFoodLogImage(row);
+        logs[idx].imageUri = repairedUrl || imageUri;
       }
     })
   );
@@ -857,6 +1078,26 @@ export async function consumeMonthlyMealPlanRemote(limit: number) {
   const { data, error } = await client.rpc('consume_monthly_meal_plan', { p_limit: limit });
   if (error) throw error;
   return (data ?? null) as number | null;
+}
+
+export async function getMonthlyChatTokenStatusRemote(pMonth?: string) {
+  const userId = await getSessionUserId().catch(() => null);
+  if (!userId) return null;
+
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('get_monthly_chat_token_status', {
+    p_month: pMonth ?? null,
+  });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+  return {
+    month: String((row as any).month || ''),
+    plan_id: String((row as any).plan_id || 'free'),
+    used: Number((row as any).used || 0),
+    limit_value: Number((row as any).limit_value || 0),
+    remaining: Number((row as any).remaining || 0),
+  } as MonthlyChatTokenStatus;
 }
 
 type MealPlanLogRow = {

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Modal,
   StatusBar,
   View,
@@ -9,13 +10,13 @@ import {
   Image,
   TouchableOpacity,
   useWindowDimensions,
+  Easing,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Defs, Mask, Rect } from 'react-native-svg';
 import { COLORS, RADIUS } from '../../constants/colors';
-import { Button } from '../../components/ui/Button';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { analyzeFoodImage } from '../../services/api';
 import { FoodAnalysis } from '../../types/user';
@@ -23,8 +24,10 @@ import { useUserStore } from '../../store/userStore';
 import { ensureUserAnalysis } from '../../services/userAnalysis';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { Card } from '../../components/ui/Card';
-import { MONTHLY_SCAN_LIMIT } from '../../config';
-import { consumeMonthlyScanRemote, getSessionUserId, refundLastScanRemote } from '../../services/userData';
+import { consumeMonthlyScanRemote, getSessionUserId, insertFoodLogRemote, listFoodLogsRemote, refundLastScanRemote } from '../../services/userData';
+import { getPlanLimits } from '../../services/plans';
+import { useTheme } from '../../theme/ThemeProvider';
+import { enqueueFoodLogForSync, processSyncQueue } from '../../services/syncQueue';
 
 function tryGetImageResizer(): any | null {
   try {
@@ -55,6 +58,21 @@ async function getImageSizeSafe(uri: string): Promise<{ width: number; height: n
   });
 }
 
+function uuidv4(): string {
+  try {
+    const c = (globalThis as any)?.crypto;
+    if (c?.randomUUID) return c.randomUUID();
+  } catch {
+    // ignore
+  }
+
+  const hex = Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+  hex[6] = (hex[6] & 0x0f) | 0x40;
+  hex[8] = (hex[8] & 0x3f) | 0x80;
+  const b = hex.map(n => n.toString(16).padStart(2, '0')).join('');
+  return `${b.slice(0, 8)}-${b.slice(8, 12)}-${b.slice(12, 16)}-${b.slice(16, 20)}-${b.slice(20)}`;
+}
+
 export default function VerifyScreen() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -62,8 +80,18 @@ export default function VerifyScreen() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const analyzeInFlightRef = useRef(false);
   const profile = useUserStore(state => state.profile);
+  const addFoodLog = useUserStore(state => state.addFoodLog);
+  const setFoodLogs = useUserStore(state => state.setFoodLogs);
+  const monthlyScanLimit = getPlanLimits(profile?.plan_id).monthlyScanLimit;
   const { alert } = useAppAlert();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const { colors, isDark } = useTheme();
+  const loadingChars = useMemo(() => ['분', '석', '중', '.', '.', '.'], []);
+  const waveValuesRef = useRef(loadingChars.map(() => new Animated.Value(0)));
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const emojiFloat = useRef(new Animated.Value(0)).current;
+  const waveLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  const emojiLoopRef = useRef<Animated.CompositeAnimation | null>(null);
 
   const insets = useSafeAreaInsets();
   const tutorialTop = (insets.top || StatusBar.currentHeight || 0) + 8;
@@ -81,14 +109,14 @@ export default function VerifyScreen() {
     if (!userId) return true;
 
     try {
-      await consumeMonthlyScanRemote(MONTHLY_SCAN_LIMIT);
+      await consumeMonthlyScanRemote(monthlyScanLimit);
       return true;
     } catch (e: any) {
       const msg = String(e?.message || '');
       if (/SCAN_LIMIT_REACHED/i.test(msg)) {
         alert({
           title: '스캔 기회 소진',
-          message: `이번 달 스캔 기회를 모두 사용했어요. (${MONTHLY_SCAN_LIMIT}회/월)`,
+          message: `이번 달 스캔 기회를 모두 사용했어요. (${monthlyScanLimit}회/월)`,
         });
         return false;
       }
@@ -273,9 +301,12 @@ export default function VerifyScreen() {
         return '알 수 없는 음식';
       };
       
+      const dishName = resolveDishName(data);
+      const isUnknown = dishName === '알 수 없는 음식';
+
       // Map API response to FoodAnalysis type
       const analysis: FoodAnalysis = {
-        dishName: resolveDishName(data),
+        dishName,
         description: data.notes || '분석된 정보가 없습니다.',
         categories: [], 
         confidence: data.confidence || 0,
@@ -284,10 +315,10 @@ export default function VerifyScreen() {
         detections: Array.isArray((data as any).detections) ? (data as any).detections : [],
         macros: {
           // Keep as many macro fields as backend provides.
-          calories: data.estimated_macros?.calories,
-          carbs_g: data.estimated_macros?.carbs_g,
-          protein_g: data.estimated_macros?.protein_g,
-          fat_g: data.estimated_macros?.fat_g,
+          calories: isUnknown ? 0 : data.estimated_macros?.calories,
+          carbs_g: isUnknown ? 0 : data.estimated_macros?.carbs_g,
+          protein_g: isUnknown ? 0 : data.estimated_macros?.protein_g,
+          fat_g: isUnknown ? 0 : data.estimated_macros?.fat_g,
           sugar_g: data.estimated_macros?.sugar_g,
           saturated_fat_g: data.estimated_macros?.saturated_fat_g,
           trans_fat_g: data.estimated_macros?.trans_fat_g,
@@ -303,6 +334,44 @@ export default function VerifyScreen() {
 
       // Always ensure detailed user-facing analysis text exists
       analysis.userAnalysis = ensureUserAnalysis(analysis, profile);
+
+      const savedAt = new Date().toISOString();
+      const localUserId = profile?.id ?? 'local';
+      const sessionUserId = await getSessionUserId().catch(() => null);
+
+      if (sessionUserId) {
+        const localId = uuidv4();
+        const localLog = {
+          id: localId,
+          userId: sessionUserId,
+          imageUri: uploadUri,
+          analysis,
+          mealType: 'snack' as const,
+          timestamp: savedAt,
+        };
+
+        await addFoodLog(localLog as any);
+
+        try {
+          await insertFoodLogRemote(localLog as any);
+          const remoteLogs = await listFoodLogsRemote(100).catch(() => null);
+          if (Array.isArray(remoteLogs)) {
+            await setFoodLogs(remoteLogs);
+          }
+          void processSyncQueue(sessionUserId);
+        } catch {
+          await enqueueFoodLogForSync({ userId: sessionUserId, log: localLog as any });
+        }
+      } else {
+        await addFoodLog({
+          id: `${Date.now()}`,
+          userId: localUserId,
+          imageUri: uploadUri,
+          analysis,
+          mealType: 'snack',
+          timestamp: savedAt,
+        });
+      }
 
       navigation.navigate('Result', {
         imageUri: uploadUri,
@@ -362,6 +431,69 @@ export default function VerifyScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAnalyze]);
 
+  useEffect(() => {
+    if (isAnalyzing) {
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+
+      const waveAnimations = waveValuesRef.current.map((value) =>
+        Animated.sequence([
+          Animated.timing(value, {
+            toValue: 1,
+            duration: 320,
+            easing: Easing.out(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(value, {
+            toValue: 0,
+            duration: 320,
+            easing: Easing.in(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ])
+      );
+
+      waveLoopRef.current?.stop();
+      waveLoopRef.current = Animated.loop(Animated.stagger(90, waveAnimations));
+      waveLoopRef.current.start();
+
+      emojiLoopRef.current?.stop();
+      emojiLoopRef.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(emojiFloat, {
+            toValue: 1,
+            duration: 700,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(emojiFloat, {
+            toValue: 0,
+            duration: 700,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      emojiLoopRef.current.start();
+      return;
+    }
+
+    waveLoopRef.current?.stop();
+    emojiLoopRef.current?.stop();
+    Animated.timing(backdropOpacity, {
+      toValue: 0,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    waveValuesRef.current.forEach((value) => value.setValue(0));
+    emojiFloat.setValue(0);
+  }, [backdropOpacity, emojiFloat, isAnalyzing, loadingChars]);
+
   const handleAnalyzeFromTutorial = async () => {
     if (showVerifyTutorial) {
       await finalizeTutorial();
@@ -370,55 +502,147 @@ export default function VerifyScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]}>
+      <StatusBar
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={colors.backgroundGray}
+      />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeButton}>
-          <AppIcon name="close" size={24} color={COLORS.text} />
+          <AppIcon name="close" size={24} color={colors.text} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.content}>
         <Card style={styles.heroCard}>
           <View style={styles.heroRow}>
-            <View style={styles.heroIcon}>
-              <AppIcon name="photo" size={22} color={COLORS.primary} />
+            <View style={[styles.heroIcon, { backgroundColor: colors.blue50 }]}>
+              <AppIcon name="photo" size={22} color={colors.primary} />
             </View>
             <View style={styles.heroText}>
-              <Text style={styles.title}>사진 확인</Text>
-              <Text style={styles.subtitle}>글자/음식이 선명하면 정확도가 올라가요</Text>
+              <Text style={[styles.title, { color: colors.text }]}>사진 확인</Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>글자/음식이 선명하면 정확도가 올라가요</Text>
             </View>
           </View>
         </Card>
 
         <Card style={styles.previewCard}>
-          <View style={styles.imageContainer}>
+          <View style={[styles.imageContainer, { borderColor: colors.border, backgroundColor: colors.background }]}>
             <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
           </View>
-          <Text style={styles.previewHint}>
+          <Text style={[styles.previewHint, { color: colors.textSecondary }]}>
             이 화면은 미리보기예요. 분석 결과는 사진 기반 추정입니다.
           </Text>
         </Card>
 
         <View style={styles.buttonGroup}>
-          <Button 
-            title="다시 찍기" 
-            variant="outline" 
-            onPress={handleRetake} 
-            icon={<AppIcon name="refresh" size={20} color={COLORS.primary} />}
-            style={styles.button}
-            disabled={isAnalyzing}
-          />
-          <View ref={analyzeButtonAnchorRef} onLayout={measureAnalyzeButton} style={{ width: '100%' }}>
-            <Button 
-              title={isAnalyzing ? "분석 중..." : "분석 시작"} 
-              onPress={handleAnalyzeFromTutorial} 
-              icon={isAnalyzing ? <ActivityIndicator color="white" /> : <AppIcon name="check" size={20} color="white" />}
-              style={styles.button}
+          <View style={styles.buttonSlot}>
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={handleRetake}
               disabled={isAnalyzing}
-            />
+              style={[
+                styles.actionButton,
+                styles.actionButtonOutline,
+                {
+                  borderColor: colors.primaryDark,
+                  backgroundColor: isDark ? colors.blue50 : colors.blue50,
+                },
+                isAnalyzing && styles.actionButtonDisabled,
+              ]}
+            >
+              <AppIcon name="refresh" size={18} color={colors.primaryDark} />
+              <Text style={[styles.actionButtonText, { color: colors.primaryDark }]}>다시 찍기</Text>
+            </TouchableOpacity>
+          </View>
+          <View ref={analyzeButtonAnchorRef} onLayout={measureAnalyzeButton} style={styles.buttonSlot}>
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={handleAnalyzeFromTutorial}
+              disabled={isAnalyzing}
+              style={[
+                styles.actionButton,
+                styles.actionButtonPrimary,
+                { backgroundColor: colors.primaryDark, borderColor: colors.primaryDark },
+                isAnalyzing && styles.actionButtonDisabled,
+              ]}
+            >
+              {isAnalyzing ? <ActivityIndicator color="#FFFFFF" /> : <AppIcon name="check" size={18} color="#FFFFFF" />}
+              <Text style={[styles.actionButtonText, styles.actionButtonTextPrimary]}>
+                {isAnalyzing ? '분석 중...' : '분석 시작'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </View>
+
+      <Animated.View
+        pointerEvents={isAnalyzing ? 'auto' : 'none'}
+        style={[
+          styles.analyzingOverlay,
+          {
+            opacity: backdropOpacity,
+            backgroundColor: isDark ? 'rgba(6,10,18,0.58)' : 'rgba(255,255,255,0.62)',
+          },
+        ]}
+      >
+        <View style={[styles.analyzingCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Animated.Text
+            style={[
+              styles.analyzingEmoji,
+              {
+                transform: [
+                  {
+                    translateY: emojiFloat.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, -8],
+                    }),
+                  },
+                  {
+                    scale: emojiFloat.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 1.05],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            🤖
+          </Animated.Text>
+          <Text style={[styles.analyzingTitle, { color: colors.text }]}>AI가 열심히 보고 있어요</Text>
+          <View style={styles.waveRow}>
+            {loadingChars.map((char, idx) => {
+              const animatedValue = waveValuesRef.current[idx];
+              return (
+                <Animated.Text
+                  key={`${char}-${idx}`}
+                  style={[
+                    styles.waveChar,
+                    {
+                      color: colors.primaryDark,
+                      transform: [
+                        {
+                          translateY: animatedValue.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, -7],
+                          }),
+                        },
+                      ],
+                      opacity: animatedValue.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.72, 1],
+                      }),
+                    },
+                  ]}
+                >
+                  {char}
+                </Animated.Text>
+              );
+            })}
+          </View>
+        </View>
+      </Animated.View>
 
       <Modal transparent visible={showVerifyTutorial} animationType="fade">
         <View style={styles.tutorialModalRoot} onLayout={measureAnalyzeButton}>
@@ -555,7 +779,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: COLORS.blue50,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -565,11 +788,9 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: COLORS.text,
   },
   subtitle: {
     fontSize: 14,
-    color: COLORS.textSecondary,
     marginTop: 4,
   },
   previewCard: {
@@ -581,8 +802,6 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.md,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.background,
   },
   image: {
     width: '100%',
@@ -591,14 +810,79 @@ const styles = StyleSheet.create({
   previewHint: {
     marginTop: 10,
     fontSize: 12,
-    color: COLORS.textSecondary,
   },
   buttonGroup: {
     width: '100%',
+    flexDirection: 'row',
     gap: 12,
   },
-  button: {
+  buttonSlot: {
+    flex: 1,
+  },
+  actionButton: {
     width: '100%',
+    minHeight: 52,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+  },
+  actionButtonOutline: {
+    backgroundColor: COLORS.background,
+  },
+  actionButtonPrimary: {
+    borderColor: 'transparent',
+  },
+  actionButtonDisabled: {
+    opacity: 0.6,
+  },
+  actionButtonText: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  actionButtonTextPrimary: {
+    color: '#FFFFFF',
+  },
+  analyzingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 30,
+    paddingHorizontal: 28,
+  },
+  analyzingCard: {
+    minWidth: 220,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingHorizontal: 28,
+    paddingVertical: 24,
+  },
+  analyzingEmoji: {
+    fontSize: 40,
+    marginBottom: 8,
+  },
+  analyzingTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 10,
+  },
+  waveRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  waveChar: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '900',
+    letterSpacing: 0.4,
   },
 
   tutorialModalRoot: {

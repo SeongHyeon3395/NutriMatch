@@ -1,5 +1,19 @@
 import type { FoodAnalysis, FoodGrade } from '../types/user';
 
+function isUnknownDishName(dishName: unknown): boolean {
+  const s = String(dishName ?? '').trim().toLowerCase();
+  if (!s) return true;
+  // Common unknown placeholders
+  return (
+    s === '알 수 없는 음식' ||
+    s.includes('알 수 없는') ||
+    s.includes('알수없는') ||
+    s.includes('unknown') ||
+    s.includes('unidentified') ||
+    s.includes('not sure')
+  );
+}
+
 function clampScore100(score: number): number {
   if (!Number.isFinite(score)) return 0;
   return Math.max(0, Math.min(100, Math.round(score)));
@@ -23,6 +37,7 @@ export function foodGradeToScore100(grade: FoodGrade): number {
 }
 
 export function getFoodScore100(analysis?: FoodAnalysis | null): number | null {
+  if (isUnknownDishName(analysis?.dishName)) return 0;
   const ua: any = analysis?.userAnalysis;
   if (!ua) return null;
 

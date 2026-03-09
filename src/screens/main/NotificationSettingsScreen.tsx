@@ -8,6 +8,7 @@ import { COLORS, SPACING, RADIUS } from '../../constants/colors';
 import { Card } from '../../components/ui/Card';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { getSessionUserId, fetchMyNotificationSettingsRemote, upsertMyNotificationSettingsRemote } from '../../services/userData';
+import { useTheme } from '../../theme/ThemeProvider';
 
 const NOTIFICATION_SETTINGS_KEY = '@nutrimatch_notification_settings';
 
@@ -34,17 +35,18 @@ type ToggleRowProps = {
 };
 
 function ToggleRow({ title, description, value, onValueChange, disabled }: ToggleRowProps) {
+  const { colors } = useTheme();
   const trackColor = useMemo(
-    () => ({ false: COLORS.border, true: COLORS.primary }),
-    []
+    () => ({ false: colors.border, true: colors.primary }),
+    [colors.border, colors.primary]
   );
 
   return (
     <View style={styles.row}>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.rowTitle, disabled && styles.disabledText]}>{title}</Text>
+        <Text style={[styles.rowTitle, { color: colors.text }, disabled && styles.disabledText]}>{title}</Text>
         {description ? (
-          <Text style={[styles.rowDesc, disabled && styles.disabledText]}>{description}</Text>
+          <Text style={[styles.rowDesc, { color: colors.textSecondary }, disabled && styles.disabledText]}>{description}</Text>
         ) : null}
       </View>
       <Switch
@@ -60,6 +62,7 @@ function ToggleRow({ title, description, value, onValueChange, disabled }: Toggl
 
 export default function NotificationSettingsScreen() {
   const navigation = useNavigation();
+  const { colors } = useTheme();
   const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -160,20 +163,20 @@ export default function NotificationSettingsScreen() {
   const subDisabled = !settings.enabled;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <AppIcon name="chevron-left" size={26} color={COLORS.text} />
+          <AppIcon name="chevron-left" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>알림 설정</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>알림 설정</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
         <Card style={styles.card}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>전체</Text>
-            <Text style={styles.sectionDesc}>원할 때만 켜고 끌 수 있어요.</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>전체</Text>
+            <Text style={[styles.sectionDesc, { color: colors.textSecondary }]}>원할 때만 켜고 끌 수 있어요.</Text>
           </View>
           <ToggleRow
             title="알림 받기"
@@ -185,8 +188,8 @@ export default function NotificationSettingsScreen() {
 
         <Card style={styles.card}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>식단/기록</Text>
-            <Text style={styles.sectionDesc}>스캔하고 기록하는 습관을 도와요.</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>식단/기록</Text>
+            <Text style={[styles.sectionDesc, { color: colors.textSecondary }]}>스캔하고 기록하는 습관을 도와요.</Text>
           </View>
           <ToggleRow
             title="식사 기록 리마인더"
@@ -195,7 +198,7 @@ export default function NotificationSettingsScreen() {
             onValueChange={(v) => setField('mealReminder', v)}
             disabled={subDisabled}
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <ToggleRow
             title="주간 요약"
             description="이번 주 기록을 한 번에 요약해서 알려줘요."
@@ -203,7 +206,7 @@ export default function NotificationSettingsScreen() {
             onValueChange={(v) => setField('weeklySummary', v)}
             disabled={subDisabled}
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <ToggleRow
             title="건강 팁"
             description="목표(다이어트/유지 등)에 맞는 간단한 팁을 보내줘요."
@@ -213,7 +216,7 @@ export default function NotificationSettingsScreen() {
           />
         </Card>
 
-        <Text style={styles.note}>
+        <Text style={[styles.note, { color: colors.textSecondary }]}>
           실제 푸시 알림(시간 지정/전송)은 추후 서버/OS 권한 설정과 함께 연결돼요. 지금은 앱 내 설정을 저장해두는 화면이에요.
         </Text>
       </ScrollView>

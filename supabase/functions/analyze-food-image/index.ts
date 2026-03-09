@@ -138,6 +138,56 @@ function readPromptFromEnvWithSource(
   }
 }
 
+function escapeRegExp(value: string): string {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function injectPromptSection(template: string, sectionName: string, content: string): { text: string; changed: boolean } {
+  let text = template;
+  let changed = false;
+
+  const placeholderToken = new RegExp(`{{\\s*${escapeRegExp(sectionName)}\\s*}}`, 'g');
+  if (placeholderToken.test(text)) {
+    text = text.replace(placeholderToken, content);
+    changed = true;
+  }
+
+  const sectionBlock = new RegExp(
+    `(\\[${escapeRegExp(sectionName)}\\]\\s*)(?:<여기는 서버가 자동으로 채웁니다>|<여기는 서버가 자동으로 채웁니다\\.>|<server fills automatically>|<auto-filled by server>)`,
+    'gi',
+  );
+  if (sectionBlock.test(text)) {
+    text = text.replace(sectionBlock, `$1${content}`);
+    changed = true;
+  }
+
+  return { text, changed };
+}
+
+function buildPromptFromTemplate(
+  template: string,
+  sections: Array<{ name: string; content: string }>,
+): string {
+  let text = String(template || '').trim();
+  let changedAny = false;
+
+  for (const section of sections) {
+    const next = injectPromptSection(text, section.name, section.content);
+    text = next.text;
+    changedAny = changedAny || next.changed;
+  }
+
+  const hasAllSections = sections.every((section) => text.includes(section.content));
+  if (!changedAny || !hasAllSections) {
+    const appendix = sections
+      .map((section) => `[${section.name}]\n${section.content}`)
+      .join('\n\n');
+    text = `${text}\n\n${appendix}`.trim();
+  }
+
+  return text;
+}
+
 function safeNumber(x: any): number | null {
   const n = typeof x === 'number' ? x : typeof x === 'string' ? Number(x) : NaN;
   return Number.isFinite(n) ? n : null;
@@ -295,6 +345,17 @@ function normalizeUserAnalysisByDishCategory(ua: any, dishRaw: any) {
   return ua;
 }
 
+function mergeStringListsPreferred(preferred: any, current: any, limit = 6): string[] {
+  const first = Array.isArray(preferred)
+    ? preferred.filter((x: any) => typeof x === 'string' && x.trim()).map((x: string) => x.trim())
+    : [];
+  const second = Array.isArray(current)
+    ? current.filter((x: any) => typeof x === 'string' && x.trim()).map((x: string) => x.trim())
+    : [];
+
+  return Array.from(new Set([...first, ...second])).slice(0, limit);
+}
+
 function buildGenericUserAnalysisFallback(params: {
   dish: string | null;
   estimated_macros: any;
@@ -390,6 +451,10 @@ function buildPersonalizedUserAnalysisFallback(params: {
 
   const bodyGoal = params.userContext?.bodyGoal;
   const healthDiet = params.userContext?.healthDiet;
+  const lifestyleDiet = params.userContext?.lifestyleDiet;
+  const ingredients = Array.isArray(params.userContext?.ingredients) ? params.userContext.ingredients : [];
+  const modelAllergens = Array.isArray(params.modelAllergens) ? params.modelAllergens : [];
+  const joinedSignals = [dish, ...modelAllergens, ...ingredients].join(' ').toLowerCase();
 
   const pros: string[] = [];
   const cons: string[] = [];
@@ -443,6 +508,37 @@ function buildPersonalizedUserAnalysisFallback(params: {
     if (isHighSugar || isHighCarb) cons.push('당/탄수 비중이 높아 혈당 관리 관점에서 주의가 필요해요.');
     else if (sugar !== null || carbs !== null) pros.push('당/탄수가 과하지 않아 혈당 관리 관점에서 비교적 무난해요.');
     dietFit.push((isHighSugar || isHighCarb) ? '혈당 관리 관점에서 탄수/당 조절이 필요해요.' : '혈당 관리 관점에서 비교적 무난해요.');
+  }
+  if (healthDiet === 'intermittent_fasting') {
+    if (calories !== null && calories < 350) cons.push('한 끼 열량이 낮아 간헐적 단식 후 식사로는 포만감이 빨리 꺼질 수 있어요.');
+    if (isHighProtein) pros.push('단백질이 충분하면 단식 후 식사 포만감 유지에 도움이 돼요.');
+    dietFit.push('간헐적 단식 중이라면 한 끼의 포만감과 영양 밀도를 같이 보는 게 좋아요.');
+  }
+  if (healthDiet === 'anti_inflammatory') {
+    if (isHighFat) cons.push('지방이 많은 편이라 항염 식단 관점에서는 조리법과 가공도를 함께 봐야 해요.');
+    dietFit.push('항염 식단 관점에서는 가공도와 포화지방, 채소/식이섬유 구성을 함께 확인하세요.');
+  }
+
+  if (lifestyleDiet === 'vegetarian' && /(소고기|돼지|닭|치킨|햄|베이컨|육포|고기|불고기|갈비|돈까스|스테이크|참치|연어|새우|게|오징어)/i.test(joinedSignals)) {
+    cons.push('채식 식단 기준에서는 동물성 재료 가능성을 확인할 필요가 있어요.');
+    dietFit.push('채식 식단이라면 원재료와 육수/토핑의 동물성 재료 포함 여부를 확인하세요.');
+  }
+  if (lifestyleDiet === 'vegan' && /(우유|치즈|버터|요거트|크림|계란|달걀|소고기|돼지|닭|멸치|참치|연어|새우|굴|꿀)/i.test(joinedSignals)) {
+    cons.push('비건 식단 기준에서는 동물성 성분 포함 가능성이 있어 주의가 필요해요.');
+    dietFit.push('비건 식단이라면 유제품·달걀·육류·해산물·꿀 포함 여부를 꼭 확인하세요.');
+  }
+  if (lifestyleDiet === 'ketogenic') {
+    if (isHighCarb) cons.push('키토 식단 기준에서는 탄수화물 비중이 높아 적합도가 낮아요.');
+    else if (carbs !== null) pros.push('탄수화물 비중이 아주 높지 않아 키토 식단 관점에서 조금 더 무난해요.');
+    dietFit.push(isHighCarb ? '키토 식단 기준으로는 탄수화물이 높아 점수를 낮췄어요.' : '키토 식단 기준으로는 탄수화물 비중을 계속 확인하세요.');
+  }
+  if (lifestyleDiet === 'gluten_free') {
+    if (/(밀|밀가루|빵|면|파스타|우동|라면|튀김가루|부침가루)/i.test(joinedSignals)) {
+      cons.push('글루텐 프리 식단 기준에서는 밀 성분 가능성이 있어 주의가 필요해요.');
+      dietFit.push('글루텐 프리 식단이라면 원재료명과 교차오염 여부를 꼭 확인하세요.');
+    } else {
+      dietFit.push('글루텐 프리 식단은 사진만으로 완전 판별이 어려워 원재료 확인이 필요해요.');
+    }
   }
 
   // 건강 관점(대략)
@@ -550,9 +646,47 @@ function buildPersonalizedUserAnalysisFallback(params: {
     }
   }
 
+  if (healthDiet === 'intermittent_fasting') {
+    if (calories !== null && calories < 350) score100 -= 6;
+    if (protein !== null && protein >= 25) score100 += 4;
+  }
+
+  if (healthDiet === 'anti_inflammatory') {
+    if (fat !== null && fat >= 28) score100 -= 5;
+  }
+
+  if (lifestyleDiet === 'ketogenic') {
+    if (carbs !== null) {
+      if (carbs >= 60) score100 -= 20;
+      else if (carbs >= 40) score100 -= 12;
+      else if (carbs <= 20) score100 += 6;
+    }
+  }
+
+  if (lifestyleDiet === 'vegetarian' && /(소고기|돼지|닭|치킨|햄|베이컨|육포|고기|불고기|갈비|돈까스|스테이크|참치|연어|새우|게|오징어)/i.test(joinedSignals)) {
+    score100 -= 18;
+  }
+  if (lifestyleDiet === 'vegan' && /(우유|치즈|버터|요거트|크림|계란|달걀|소고기|돼지|닭|멸치|참치|연어|새우|굴|꿀)/i.test(joinedSignals)) {
+    score100 -= 24;
+  }
+  if (lifestyleDiet === 'gluten_free' && /(밀|밀가루|빵|면|파스타|우동|라면|튀김가루|부침가루)/i.test(joinedSignals)) {
+    score100 -= 18;
+  }
+
   // 알레르기 경고(개인화)
   const allergenWarningsCount = Array.isArray(params.warningsFromAllergens) ? params.warningsFromAllergens.length : 0;
   if (allergenWarningsCount > 0) score100 -= Math.min(25, 12 + allergenWarningsCount * 4);
+
+  // 명확한 충돌은 상한선 적용
+  if (bodyGoal === 'diet' && (isHighCalories || isHighSugar || isHighFat)) score100 = Math.min(score100, 64);
+  if (healthDiet === 'diabetic' && (isHighSugar || isHighCarb)) score100 = Math.min(score100, 48);
+  if (healthDiet === 'low_carb' && isHighCarb) score100 = Math.min(score100, 55);
+  if (healthDiet === 'low_sodium' && isHighSodium) score100 = Math.min(score100, 55);
+  if (lifestyleDiet === 'ketogenic' && isHighCarb) score100 = Math.min(score100, 45);
+  if (lifestyleDiet === 'vegetarian' && /(소고기|돼지|닭|치킨|햄|베이컨|육포|고기|불고기|갈비|돈까스|스테이크|참치|연어|새우|게|오징어)/i.test(joinedSignals)) score100 = Math.min(score100, 35);
+  if (lifestyleDiet === 'vegan' && /(우유|치즈|버터|요거트|크림|계란|달걀|소고기|돼지|닭|멸치|참치|연어|새우|굴|꿀)/i.test(joinedSignals)) score100 = Math.min(score100, 25);
+  if (lifestyleDiet === 'gluten_free' && /(밀|밀가루|빵|면|파스타|우동|라면|튀김가루|부침가루)/i.test(joinedSignals)) score100 = Math.min(score100, 40);
+  if (allergenWarningsCount > 0) score100 = Math.min(score100, 30);
 
   // 최종 정규화
   score100 = Math.max(0, Math.min(100, Math.round(score100)));
@@ -585,6 +719,12 @@ function buildPersonalizedUserAnalysisFallback(params: {
   if (isHighSodium) tips.push('가능하면 국물은 남기고, 물을 충분히 드세요.');
   if (isHighCarb) tips.push('후식/음료의 당 섭취는 줄이는 게 좋아요.');
   if (isLowProtein) tips.push('단백질 반찬을 추가하면 더 좋아요.');
+
+  while (pros.length < 2) pros.push('사용자 목표 기준으로 보면 일부 조절 여지는 있지만 활용할 수 있는 선택이에요.');
+  while (cons.length < 2) cons.push('정확한 성분표가 아니면 실제 영양값과 차이가 있을 수 있어요.');
+  while (goalFit.length < 2) goalFit.push('목표에 맞추려면 1회 섭취량과 곁들이는 메뉴를 함께 조절해보세요.');
+  while (dietFit.length < 2) dietFit.push('현재 식단 기준에서는 원재료와 조리법까지 같이 확인하는 게 좋아요.');
+  while (healthImpact.length < 2) healthImpact.push('가공도와 소스 양에 따라 건강 영향은 크게 달라질 수 있어요.');
 
   return {
     grade,
@@ -1032,47 +1172,41 @@ TARGET SCHEMA:
     // 4-1. 사용자 맞춤 분석(userAnalysis)은 텍스트 모델(Lite)로 별도 생성
     const hasCtx = hasMeaningfulUserContext(userContext);
     if (hasCtx && apiKey) {
-      const defaultAssistantPrompt = `당신은 한국어로 답하는 친절한 영양 상담/비서입니다.
+      const defaultAssistantPrompt = `역할: 한국어 영양 상담/비서.
 
-아래 [분석 결과]와 [사용자 컨텍스트]를 바탕으로, 오직 JSON 객체 1개만 출력하세요.
-반드시 userAnalysis 스키마만 반환해야 합니다(설명/마크다운/코드펜스 금지).
+입력([분석 결과], [사용자 컨텍스트])을 근거로 아래 스키마의 JSON 객체 1개만 출력.
+금지: 설명/마크다운/코드펜스/추가 키.
 
-TARGET SCHEMA:
-{
-  "grade": "very_good"|"good"|"neutral"|"bad"|"very_bad",
-  "score100": number,
-  "pros": string[],
-  "cons": string[],
-  "goalFit": string[],
-  "dietFit": string[],
-  "healthImpact": string[],
-  "reasons": string[],
-  "warnings": string[],
-  "alternatives": string[],
-  "tips": string[]
-}
+SCHEMA(userAnalysis)
+{"grade":"very_good"|"good"|"neutral"|"bad"|"very_bad","score100":number,"pros":string[],"cons":string[],"goalFit":string[],"dietFit":string[],"healthImpact":string[],"reasons":string[],"warnings":string[],"alternatives":string[],"tips":string[]}
 
-규칙:
-- score100은 0~100 정수
-- pros/cons/goalFit/dietFit/healthImpact는 각각 최소 2개
-- tips[0]는 2~3문장, 한국어, 짧고 직관적, 반드시 포함: (1) 음식 이름을 ~로 추정, (2) 영양정보는 “추정치” 고지, (3) 좋은 점 1개 + 아쉬운 점 1개
+핵심 원칙
+- 반드시 [사용자 컨텍스트]를 최우선으로 반영한다.
+- 일반적으로 건강해 보여도 사용자의 목표/식단과 충돌하면 점수와 문구를 명확히 낮춘다.
+- 목표/식단과 충돌하는 경우, goalFit/dietFit/reasons에 그 충돌을 직접 쓴다.
+- 애매하게 좋다고 말하지 말고 맞는 이유와 안 맞는 이유를 분명히 적는다.
+
+강한 판정 규칙
+- 다이어트(bodyGoal=diet)인데 칼로리·당류·지방이 높으면 65점 이상으로 쓰지 말 것.
+- 혈당 관리(healthDiet=diabetic)인데 당류 또는 탄수화물이 높으면 50점 이상으로 쓰지 말 것.
+- 저탄수(healthDiet=low_carb) 또는 키토(lifestyleDiet=ketogenic)인데 탄수화물이 높으면 높은 점수를 주지 말 것.
+- 저염(healthDiet=low_sodium)인데 나트륨이 높으면 높은 점수를 주지 말 것.
+- 알레르기 경고가 있으면 안전성 때문에 점수를 크게 낮춘다.
+- 채식/비건/글루텐프리와 충돌 가능성이 보이면 warnings와 dietFit에 반드시 반영한다.
+
+제약
+- score100: 0~100 정수
+- pros/cons/goalFit/dietFit/healthImpact: 각 배열 길이 ≥ 2
+- tips[0]: 2~3문장(한국어, 짧고 직관적)이며 반드시 포함
+  1) 음식 이름을 "~로 추정" 표현
+  2) 영양정보는 "추정치"임을 고지
+  3) 좋은 점 1개 + 아쉬운 점 1개
 
 [분석 결과]
-${JSON.stringify(
-  {
-    dish: geminiData?.dish ?? null,
-    brand: geminiData?.brand ?? null,
-    estimated_macros: geminiData?.estimated_macros ?? null,
-    ingredients: Array.isArray(geminiData?.ingredients) ? geminiData.ingredients : [],
-    allergens: Array.isArray(geminiData?.allergens) ? geminiData.allergens : [],
-    notes: geminiData?.notes ?? geminiNotice,
-  },
-  null,
-  2,
-)}
+{{분석 결과}}
 
 [사용자 컨텍스트]
-${JSON.stringify(userContext, null, 2)}
+{{사용자 컨텍스트}}
 `;
 
       const assistantPromptFromEnv = readPromptFromEnvWithSource(
@@ -1080,22 +1214,39 @@ ${JSON.stringify(userContext, null, 2)}
         'GEMINI_ASSISTANT_PROMPT_B64',
       );
       const assistantPrompt = assistantPromptFromEnv.text || defaultAssistantPrompt;
+      const analysisPayload = JSON.stringify(
+        {
+          dish: geminiData?.dish ?? null,
+          brand: geminiData?.brand ?? null,
+          estimated_macros: geminiData?.estimated_macros ?? null,
+          ingredients: Array.isArray(geminiData?.ingredients) ? geminiData.ingredients : [],
+          allergens: Array.isArray(geminiData?.allergens) ? geminiData.allergens : [],
+          notes: geminiData?.notes ?? geminiNotice,
+        },
+        null,
+        2,
+      );
+      const userContextPayload = JSON.stringify(userContext, null, 2);
+      const assistantPromptFilled = buildPromptFromTemplate(assistantPrompt, [
+        { name: '분석 결과', content: analysisPayload },
+        { name: '사용자 컨텍스트', content: userContextPayload },
+      ]);
       const assistantPromptSource: 'default' | 'env_direct' | 'env_b64' = assistantPromptFromEnv.text
         ? assistantPromptFromEnv.source
         : 'default';
 
       let assistantPromptSha256: string | undefined;
       if (debugPrompts) {
-        assistantPromptSha256 = await sha256Hex(assistantPrompt);
+        assistantPromptSha256 = await sha256Hex(assistantPromptFilled);
         promptDebug = promptDebug || {};
         promptDebug.assistantPrompt = {
           source: assistantPromptSource,
-          length: assistantPrompt.length,
+          length: assistantPromptFilled.length,
           sha256: assistantPromptSha256,
         };
       }
 
-      console.log('[DEBUG] Assistant prompt length:', assistantPrompt.length);
+      console.log('[DEBUG] Assistant prompt length:', assistantPromptFilled.length);
       console.log('[DEBUG] Assistant prompt source:', assistantPromptSource);
       if (debugPrompts) {
         console.log('[DEBUG] Assistant prompt sha256:', assistantPromptSha256);
@@ -1104,7 +1255,7 @@ ${JSON.stringify(userContext, null, 2)}
       const uaResult = await callGeminiText({
         model: textModel,
         apiKey,
-        prompt: assistantPrompt,
+        prompt: assistantPromptFilled,
       });
 
       if (uaResult && !uaResult.error) {
@@ -1160,26 +1311,14 @@ ${JSON.stringify(userContext, null, 2)}
           next.tips = [fallback.tips[0], ...tips.slice(0, 5)];
         }
 
-        const reasons = Array.isArray(next.reasons) ? next.reasons.filter((x: any) => typeof x === 'string' && x.trim()) : [];
-        if (reasons.length === 0) next.reasons = fallback.reasons;
-
-        const alternatives = Array.isArray(next.alternatives) ? next.alternatives.filter((x: any) => typeof x === 'string' && x.trim()) : [];
-        if (alternatives.length === 0) next.alternatives = fallback.alternatives;
-
-        const pros = Array.isArray((next as any).pros) ? (next as any).pros.filter((x: any) => typeof x === 'string' && x.trim()) : [];
-        if (pros.length === 0) (next as any).pros = fallback.pros;
-
-        const cons = Array.isArray((next as any).cons) ? (next as any).cons.filter((x: any) => typeof x === 'string' && x.trim()) : [];
-        if (cons.length === 0) (next as any).cons = fallback.cons;
-
-        const goalFit = Array.isArray((next as any).goalFit) ? (next as any).goalFit.filter((x: any) => typeof x === 'string' && x.trim()) : [];
-        if (goalFit.length === 0) (next as any).goalFit = fallback.goalFit;
-
-        const dietFit = Array.isArray((next as any).dietFit) ? (next as any).dietFit.filter((x: any) => typeof x === 'string' && x.trim()) : [];
-        if (dietFit.length === 0) (next as any).dietFit = fallback.dietFit;
-
-        const healthImpact = Array.isArray((next as any).healthImpact) ? (next as any).healthImpact.filter((x: any) => typeof x === 'string' && x.trim()) : [];
-        if (healthImpact.length === 0) (next as any).healthImpact = fallback.healthImpact;
+        next.reasons = mergeStringListsPreferred(fallback.reasons, next.reasons);
+        next.alternatives = mergeStringListsPreferred(fallback.alternatives, next.alternatives);
+        (next as any).pros = mergeStringListsPreferred(fallback.pros, (next as any).pros);
+        (next as any).cons = mergeStringListsPreferred(fallback.cons, (next as any).cons);
+        (next as any).goalFit = mergeStringListsPreferred(fallback.goalFit, (next as any).goalFit);
+        (next as any).dietFit = mergeStringListsPreferred(fallback.dietFit, (next as any).dietFit);
+        (next as any).healthImpact = mergeStringListsPreferred(fallback.healthImpact, (next as any).healthImpact);
+        next.warnings = mergeStringListsPreferred(warningsFromAllergens, next.warnings, 8);
       }
 
       // 컨텍스트가 없거나 모델이 이상한 대안을 준 경우에도 음식 카테고리에 맞게 대안 보정

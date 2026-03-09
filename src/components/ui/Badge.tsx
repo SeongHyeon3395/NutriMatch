@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
-import { COLORS, RADIUS } from '../../constants/colors';
+import { RADIUS } from '../../constants/colors';
+import { useTheme } from '../../theme/ThemeProvider';
 
 interface BadgeProps {
   children?: React.ReactNode;
@@ -21,20 +22,22 @@ export const Badge: React.FC<BadgeProps> = ({
   numberOfLines,
   ellipsizeMode,
 }) => {
+  const { colors } = useTheme();
+
   const getStyles = () => {
     switch (variant) {
       case 'success':
-        return { bg: COLORS.green50, text: COLORS.success, border: COLORS.green200 };
+        return { bg: colors.green50, text: colors.success, border: colors.green200 };
       case 'danger':
-        return { bg: COLORS.red50, text: COLORS.danger, border: COLORS.red200 };
+        return { bg: colors.red50, text: colors.danger, border: colors.red200 };
       case 'warning':
-        return { bg: COLORS.yellow50, text: '#B45309', border: COLORS.yellow200 }; // yellow-700 equivalent
+        return { bg: colors.warningSoft, text: colors.warningDark, border: colors.yellow200 };
       case 'outline':
-        return { bg: 'transparent', text: COLORS.text, border: COLORS.border };
+        return { bg: 'transparent', text: colors.text, border: colors.border };
       case 'secondary':
-        return { bg: COLORS.background, text: COLORS.textSecondary, border: COLORS.border };
+        return { bg: colors.backgroundGray, text: colors.textSecondary, border: colors.border };
       default:
-        return { bg: COLORS.blue50, text: COLORS.primary, border: COLORS.blue200 };
+        return { bg: colors.blue50, text: colors.primary, border: colors.blue200 };
     }
   };
 
@@ -60,13 +63,13 @@ export const Badge: React.FC<BadgeProps> = ({
 const styles = StyleSheet.create({
   badge: {
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: RADIUS.full,
     borderWidth: 1,
     alignSelf: 'flex-start',
   },
   text: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

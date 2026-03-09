@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { COLORS, SPACING, RADIUS } from '../../constants/colors';
 import { Card } from '../../components/ui/Card';
@@ -9,9 +10,10 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { Button } from '../../components/ui/Button';
 import { useUserStore } from '../../store/userStore';
 import { BODY_GOALS, HEALTH_DIETS, LIFESTYLE_DIETS } from '../../constants';
-import { fetchMyAppUser, getMonthlyMealPlanCountRemote, getMonthlyScanCountRemote } from '../../services/userData';
+import { fetchMyAppUser, getMonthlyChatTokenStatusRemote, getMonthlyMealPlanCountRemote, getMonthlyScanCountRemote } from '../../services/userData';
 import { isSupabaseConfigured, supabase } from '../../services/supabaseClient';
-import { MONTHLY_MEAL_PLAN_LIMIT, MONTHLY_SCAN_LIMIT } from '../../config';
+import { getPlanLabel, getPlanLimits } from '../../services/plans';
+import { useTheme } from '../../theme/ThemeProvider';
 
 type InfoRowProps = {
   label: string;
@@ -19,10 +21,12 @@ type InfoRowProps = {
 };
 
 function InfoRow({ label, value }: InfoRowProps) {
+  const { colors } = useTheme();
+
   return (
-    <View style={styles.infoRow}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue} numberOfLines={2}>
+    <View style={[styles.infoRow, { borderTopColor: colors.border }]}>
+      <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>{label}</Text>
+      <Text style={[styles.infoValue, { color: colors.text }]} numberOfLines={2}>
         {value}
       </Text>
     </View>
@@ -31,6 +35,7 @@ function InfoRow({ label, value }: InfoRowProps) {
 
 export default function PersonalInfoScreen() {
   const navigation = useNavigation();
+  const { colors } = useTheme();
   const profile = useUserStore(state => state.profile);
   const setProfile = useUserStore(state => state.setProfile);
   const username = profile?.username || (profile?.email ? profile.email.split('@')[0] : '');
@@ -38,11 +43,30 @@ export default function PersonalInfoScreen() {
 
   const [monthlyScanCount, setMonthlyScanCount] = useState<number | null>(null);
   const [monthlyMealPlanCount, setMonthlyMealPlanCount] = useState<number | null>(null);
+  const [monthlyChatTokenRemaining, setMonthlyChatTokenRemaining] = useState<number | null>(null);
+  const quotaCacheKey = useMemo(() => {
+    const uid = String(profile?.id || 'anonymous');
+    return `@nutrimatch_personalinfo_quota:${uid}`;
+  }, [profile?.id]);
+
+  const planLimits = useMemo(() => getPlanLimits(profile?.plan_id), [profile?.plan_id]);
 
   useFocusEffect(
     useCallback(() => {
       let alive = true;
       (async () => {
+        try {
+          const cached = await AsyncStorage.getItem(quotaCacheKey);
+          if (alive && cached) {
+            const parsed = JSON.parse(cached);
+            setMonthlyScanCount(typeof parsed?.scanCount === 'number' ? parsed.scanCount : null);
+            setMonthlyMealPlanCount(typeof parsed?.mealPlanCount === 'number' ? parsed.mealPlanCount : null);
+            setMonthlyChatTokenRemaining(typeof parsed?.chatTokenRemaining === 'number' ? parsed.chatTokenRemaining : null);
+          }
+        } catch {
+          // ignore cache read failure
+        }
+
         if (!isSupabaseConfigured || !supabase) return;
         try {
           const remote = await fetchMyAppUser();
@@ -53,23 +77,41 @@ export default function PersonalInfoScreen() {
         }
 
         try {
-          const [scanCount, mealPlanCount] = await Promise.all([
+          const [scanCount, mealPlanCount, chatTokenStatus] = await Promise.all([
             getMonthlyScanCountRemote().catch(() => null),
             getMonthlyMealPlanCountRemote().catch(() => null),
+            getMonthlyChatTokenStatusRemote().catch(() => null),
           ]);
           if (!alive) return;
-          setMonthlyScanCount(typeof scanCount === 'number' ? scanCount : null);
-          setMonthlyMealPlanCount(typeof mealPlanCount === 'number' ? mealPlanCount : null);
+          const nextScan = typeof scanCount === 'number' ? scanCount : monthlyScanCount;
+          const nextMeal = typeof mealPlanCount === 'number' ? mealPlanCount : monthlyMealPlanCount;
+          const nextChat = typeof chatTokenStatus?.remaining === 'number' ? chatTokenStatus.remaining : monthlyChatTokenRemaining;
+
+          setMonthlyScanCount(nextScan ?? null);
+          setMonthlyMealPlanCount(nextMeal ?? null);
+          setMonthlyChatTokenRemaining(nextChat ?? null);
+
+          try {
+            await AsyncStorage.setItem(
+              quotaCacheKey,
+              JSON.stringify({
+                scanCount: nextScan ?? null,
+                mealPlanCount: nextMeal ?? null,
+                chatTokenRemaining: nextChat ?? null,
+              })
+            );
+          } catch {
+            // ignore cache write failure
+          }
         } catch {
           if (!alive) return;
-          setMonthlyScanCount(null);
-          setMonthlyMealPlanCount(null);
+          // keep previous values to avoid sudden blank UI
         }
       })();
       return () => {
         alive = false;
       };
-    }, [setProfile])
+    }, [setProfile, quotaCacheKey, monthlyScanCount, monthlyMealPlanCount, monthlyChatTokenRemaining])
   );
 
   const formatNumber = (v: unknown, unit?: string) => {
@@ -93,27 +135,27 @@ export default function PersonalInfoScreen() {
   }, [profile?.lifestyleDiet]);
 
   const remainingScanThisMonth =
-    typeof monthlyScanCount === 'number' ? Math.max(0, MONTHLY_SCAN_LIMIT - monthlyScanCount) : null;
+    typeof monthlyScanCount === 'number' ? Math.max(0, planLimits.monthlyScanLimit - monthlyScanCount) : null;
   const remainingMealPlanThisMonth =
     typeof monthlyMealPlanCount === 'number'
-      ? Math.max(0, MONTHLY_MEAL_PLAN_LIMIT - monthlyMealPlanCount)
+      ? Math.max(0, planLimits.monthlyMealPlanLimit - monthlyMealPlanCount)
       : null;
 
   if (!profile) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <AppIcon name="chevron-left" size={26} color={COLORS.text} />
+            <AppIcon name="chevron-left" size={26} color={colors.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>내 정보</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>내 정보</Text>
           <View style={{ width: 40 }} />
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
           <Card style={styles.card}>
-            <Text style={styles.sectionTitle}>안내</Text>
-            <Text style={styles.emptyText}>프로필 정보가 없습니다. 온보딩 또는 로그인 후 이용해주세요.</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>안내</Text>
+            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>프로필 정보가 없습니다. 온보딩 또는 로그인 후 이용해주세요.</Text>
             <View style={{ height: 12 }} />
             <Button variant="outline" onPress={() => navigation.goBack()}>
               뒤로
@@ -125,26 +167,26 @@ export default function PersonalInfoScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <AppIcon name="chevron-left" size={26} color={COLORS.text} />
+          <AppIcon name="chevron-left" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>내 정보</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>내 정보</Text>
         <TouchableOpacity style={styles.editButton} onPress={() => navigation.navigate('EditPersonalInfo' as never)}>
-          <Text style={styles.editButtonText}>수정</Text>
+          <Text style={[styles.editButtonText, { color: colors.primary }]}>수정</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
         <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>계정</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>계정</Text>
           <InfoRow label="아이디" value={username || '로그인 후 표시'} />
           <InfoRow label="닉네임" value={nickname || '로그인 후 표시'} />
         </Card>
 
         <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>내 설정</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>내 설정</Text>
           <InfoRow label="체형 목표" value={bodyGoalLabel} />
           <InfoRow label="건강 목적" value={healthDietLabel} />
           <InfoRow label="식습관" value={lifestyleDietLabel} />
@@ -152,7 +194,7 @@ export default function PersonalInfoScreen() {
         </Card>
 
         <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>신체 정보</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>신체 정보</Text>
           <InfoRow label="현재 체중" value={formatNumber(profile.currentWeight, 'kg')} />
           <InfoRow label="목표 체중" value={formatNumber(profile.targetWeight, 'kg')} />
           <InfoRow label="키" value={formatNumber(profile.height, 'cm')} />
@@ -170,22 +212,30 @@ export default function PersonalInfoScreen() {
         </Card>
 
         <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>플랜</Text>
-          <InfoRow label="플랜" value={profile?.plan_id ? String(profile.plan_id) : 'Free'} />
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>플랜</Text>
+          <InfoRow label="플랜" value={`${getPlanLabel(profile?.plan_id)} 플랜`} />
           <InfoRow
             label="이번 달 남은 스캔"
             value={
               typeof remainingScanThisMonth === 'number'
-                ? `${remainingScanThisMonth}/${MONTHLY_SCAN_LIMIT}`
-                : '불러오는 중'
+                ? `${remainingScanThisMonth}/${planLimits.monthlyScanLimit}`
+                : '-'
             }
           />
           <InfoRow
             label="이번 달 남은 식단 생성"
             value={
               typeof remainingMealPlanThisMonth === 'number'
-                ? `${remainingMealPlanThisMonth}/${MONTHLY_MEAL_PLAN_LIMIT}`
-                : '불러오는 중'
+                ? `${remainingMealPlanThisMonth}/${planLimits.monthlyMealPlanLimit}`
+                : '-'
+            }
+          />
+          <InfoRow
+            label="이번 달 남은 챗봇 토큰"
+            value={
+              typeof monthlyChatTokenRemaining === 'number'
+                ? `${monthlyChatTokenRemaining.toLocaleString()}/${planLimits.chatTokensMonthly.toLocaleString()}`
+                : '-'
             }
           />
         </Card>
@@ -203,8 +253,8 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
@@ -217,8 +267,8 @@ const styles = StyleSheet.create({
   headerTitle: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '800',
     color: COLORS.text,
   },
   editButton: {
@@ -233,7 +283,7 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
   },
   content: {
-    padding: SPACING.lg,
+    padding: 20,
     gap: SPACING.md,
   },
   card: {

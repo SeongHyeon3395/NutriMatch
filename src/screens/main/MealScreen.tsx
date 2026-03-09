@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { COLORS } from '../../constants/colors';
+import { COLORS, RADIUS, SPACING } from '../../constants/colors';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -24,14 +24,16 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
 import { consumeMonthlyMealPlanRemote, getMonthlyMealPlanCountRemote, getSessionUserId, insertMealPlanLogRemote, listMealPlanLogsRemote, listMonthlyUsedMealNamesRemote } from '../../services/userData';
-import { MONTHLY_MEAL_PLAN_LIMIT } from '../../config';
 import { generateMealPlanRemote } from '../../services/mealPlan';
 import type { MealPlanDay, MealPlanResult, MealPlanMode } from '../../types/mealPlan';
 import type { MealPlanLog } from '../../services/userData';
+import { getPlanLimits } from '../../services/plans';
+import { useTheme } from '../../theme/ThemeProvider';
 
 export default function MealScreen() {
   const navigation = useNavigation<any>();
   const { alert } = useAppAlert();
+  const { colors } = useTheme();
 
   useEffect(() => {
     if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -116,6 +118,7 @@ export default function MealScreen() {
   };
 
   const profile = useUserStore(state => state.profile);
+  const monthlyMealPlanLimit = getPlanLimits(profile?.plan_id).monthlyMealPlanLimit;
   const isMaster =
     (profile as any)?.plan_id === 'master' ||
     profile?.id === 'local-master' ||
@@ -187,7 +190,7 @@ export default function MealScreen() {
   );
 
   const remainingMealPlanThisMonth =
-    typeof usedMealPlanCount === 'number' ? Math.max(0, MONTHLY_MEAL_PLAN_LIMIT - usedMealPlanCount) : null;
+    typeof usedMealPlanCount === 'number' ? Math.max(0, monthlyMealPlanLimit - usedMealPlanCount) : null;
 
   const displayName = String(profile?.nickname || (profile as any)?.name || profile?.username || '사용자');
 
@@ -450,10 +453,10 @@ export default function MealScreen() {
       const used = await getMonthlyMealPlanCountRemote();
       if (typeof used === 'number') {
         setUsedMealPlanCount(used);
-        if (used >= MONTHLY_MEAL_PLAN_LIMIT) {
+        if (used >= monthlyMealPlanLimit) {
           alert({
             title: '식단 생성 기회 소진',
-            message: `이번 달 식단 생성 기회를 모두 사용했어요. (${MONTHLY_MEAL_PLAN_LIMIT}회/월)`,
+            message: `이번 달 식단 생성 기회를 모두 사용했어요. (${monthlyMealPlanLimit}회/월)`,
           });
           return false;
         }
@@ -467,7 +470,7 @@ export default function MealScreen() {
   const consumeMealPlanOrThrow = async () => {
     const userId = await getSessionUserId().catch(() => null);
     if (!userId) return;
-    await consumeMonthlyMealPlanRemote(MONTHLY_MEAL_PLAN_LIMIT);
+    await consumeMonthlyMealPlanRemote(monthlyMealPlanLimit);
     try {
       const used = await getMonthlyMealPlanCountRemote().catch(() => null);
       if (typeof used === 'number') setUsedMealPlanCount(used);
@@ -591,23 +594,23 @@ export default function MealScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>AI 식단</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]} edges={['top', 'left', 'right']}>
+      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>AI 식단</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.subtitle}>목표/식단/알레르기를 반영해 식단을 짜드려요</Text>
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>목표/식단/알레르기를 반영해 식단을 짜드려요</Text>
 
         {/* Main Action Card */}
-        <Card style={styles.actionCard}>
+        <Card style={styles.actionCard} variant="elevated">
           <View style={styles.quotaRow}>
-            <View style={styles.iconCircle}>
-              <AppIcon name="restaurant" size={28} color={COLORS.primary} />
+            <View style={[styles.iconCircle, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }]}>
+              <AppIcon name="restaurant" size={28} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>식단 생성</Text>
-              <Text style={styles.cardDescription}>무료 플랜은 월 {MONTHLY_MEAL_PLAN_LIMIT}회까지 생성할 수 있어요.</Text>
+              <Text style={[styles.cardTitle, { color: colors.text }]}>식단 생성</Text>
+              <Text style={[styles.cardDescription, { color: colors.textSecondary }]}>현재 플랜은 월 {monthlyMealPlanLimit}회까지 식단 생성이 가능해요.</Text>
             </View>
             <Badge
               variant="outline"
@@ -624,15 +627,15 @@ export default function MealScreen() {
           <View style={styles.modeRow}>
             <TouchableOpacity
               onPress={() => setMode('general')}
-              style={[styles.modeChip, mode === 'general' && styles.modeChipActive]}
+              style={[styles.modeChip, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }, mode === 'general' && styles.modeChipActive, mode === 'general' && { backgroundColor: colors.surfaceMuted, borderColor: colors.primary }]}
             >
-              <Text style={[styles.modeChipText, mode === 'general' && styles.modeChipTextActive]}>하루 식단</Text>
+              <Text style={[styles.modeChipText, { color: colors.textSecondary }, mode === 'general' && styles.modeChipTextActive, mode === 'general' && { color: colors.primary }]}>하루 식단</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setMode('pantry')}
-              style={[styles.modeChip, mode === 'pantry' && styles.modeChipActive]}
+              style={[styles.modeChip, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }, mode === 'pantry' && styles.modeChipActive, mode === 'pantry' && { backgroundColor: colors.surfaceMuted, borderColor: colors.primary }]}
             >
-              <Text style={[styles.modeChipText, mode === 'pantry' && styles.modeChipTextActive]}>보유음식기반</Text>
+              <Text style={[styles.modeChipText, { color: colors.textSecondary }, mode === 'pantry' && styles.modeChipTextActive, mode === 'pantry' && { color: colors.primary }]}>보유음식기반</Text>
             </TouchableOpacity>
           </View>
 
@@ -679,10 +682,10 @@ export default function MealScreen() {
                       <TouchableOpacity
                         onPress={() => togglePantryItem(item)}
                         activeOpacity={0.85}
-                        style={styles.selectedChip}
+                        style={[styles.selectedChip, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }]}
                       >
-                        <Text style={styles.selectedChipText} numberOfLines={1}>{item}</Text>
-                        <AppIcon name="close" size={16} color={COLORS.textSecondary} />
+                        <Text style={[styles.selectedChipText, { color: colors.text }]} numberOfLines={1}>{item}</Text>
+                        <AppIcon name="close" size={16} color={colors.textSecondary} />
                       </TouchableOpacity>
                     </Animated.View>
                   ))}
@@ -719,26 +722,26 @@ export default function MealScreen() {
           onRequestClose={() => setIsPantryPickerOpen(false)}
         >
           <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
+            <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.surfaceMuted }]}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>내 음식 선택</Text>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>내 음식 선택</Text>
                 <TouchableOpacity onPress={() => setIsPantryPickerOpen(false)} style={styles.modalCloseButton}>
-                  <AppIcon name="close" size={22} color={COLORS.text} />
+                  <AppIcon name="close" size={22} color={colors.text} />
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.searchRow}>
-                <AppIcon name="search" size={20} color={COLORS.textSecondary} />
+              <View style={[styles.searchRow, { borderColor: colors.surfaceMuted, backgroundColor: colors.surfaceElevated }]}>
+                <AppIcon name="search" size={20} color={colors.textSecondary} />
                 <TextInput
                   value={pantrySearchText}
                   onChangeText={setPantrySearchText}
                   placeholder="검색 (예: 닭, 두부, 브로콜리)"
-                  placeholderTextColor={COLORS.textSecondary}
-                  style={styles.searchInput}
+                  placeholderTextColor={colors.textSecondary}
+                  style={[styles.searchInput, { color: colors.text }]}
                 />
                 {pantrySearchText.trim() ? (
                   <TouchableOpacity onPress={() => setPantrySearchText('')}>
-                    <AppIcon name="close" size={20} color={COLORS.textSecondary} />
+                    <AppIcon name="close" size={20} color={colors.textSecondary} />
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -768,10 +771,10 @@ export default function MealScreen() {
                       <TouchableOpacity
                         onPress={() => togglePantryItem(item)}
                         activeOpacity={0.85}
-                        style={styles.selectedChip}
+                        style={[styles.selectedChip, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }]}
                       >
-                        <Text style={styles.selectedChipText} numberOfLines={1}>{item}</Text>
-                        <AppIcon name="close" size={16} color={COLORS.textSecondary} />
+                        <Text style={[styles.selectedChipText, { color: colors.text }]} numberOfLines={1}>{item}</Text>
+                        <AppIcon name="close" size={16} color={colors.textSecondary} />
                       </TouchableOpacity>
                     </Animated.View>
                   ))}
@@ -795,15 +798,15 @@ export default function MealScreen() {
                     togglePantryItem(customAddCandidate.name);
                     setPantrySearchText('');
                   }}
-                  style={styles.customAddRow}
+                  style={[styles.customAddRow, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }]}
                 >
                   <View style={styles.customAddRowLeft}>
-                    <View style={styles.customAddIcon}>
-                      <AppIcon name="add" size={18} color="white" />
+                    <View style={[styles.customAddIcon, { backgroundColor: colors.surfaceMuted }] }>
+                      <AppIcon name="add" size={18} color={colors.text} />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.customAddTitle} numberOfLines={1}>{customAddCandidate.name}</Text>
-                      <Text style={styles.customAddDesc} numberOfLines={1}>
+                      <Text style={[styles.customAddTitle, { color: colors.text }]} numberOfLines={1}>{customAddCandidate.name}</Text>
+                      <Text style={[styles.customAddDesc, { color: colors.textSecondary }]} numberOfLines={1}>
                         {'목록에 없어도 직접 추가할 수 있어요'}
                       </Text>
                     </View>
@@ -822,28 +825,28 @@ export default function MealScreen() {
                     <TouchableOpacity
                       activeOpacity={0.85}
                           onPress={() => togglePantryItem(item.name)}
-                      style={styles.catalogRow}
+                      style={[styles.catalogRow, { borderColor: colors.surfaceMuted, backgroundColor: colors.surface }]}
                     >
                       <View style={styles.catalogRowLeft}>
                         <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
                           {checked ? <AppIcon name="check" size={18} color="white" /> : null}
                         </View>
-                            <Text style={styles.catalogRowText}>{item.name}</Text>
+                            <Text style={[styles.catalogRowText, { color: colors.text }]}>{item.name}</Text>
                       </View>
                     </TouchableOpacity>
                   );
                 }}
                 ListEmptyComponent={
                   <View style={styles.emptyCatalog}>
-                    <Text style={styles.emptyCatalogTitle}>검색 결과가 없어요</Text>
-                    <Text style={styles.emptyCatalogDesc}>
+                    <Text style={[styles.emptyCatalogTitle, { color: colors.text }]}>검색 결과가 없어요</Text>
+                    <Text style={[styles.emptyCatalogDesc, { color: colors.textSecondary }]}>
                       {showManualAdd ? '아래에서 직접 추가할 수 있어요.' : '다른 키워드로 검색해보세요.'}
                     </Text>
                   </View>
                 }
                 ListFooterComponent={showManualAdd ? (
                   <View style={styles.customInputSection}>
-                    <Text style={styles.customInputTitle}>
+                    <Text style={[styles.customInputTitle, { color: colors.text }]}>
                       {displayName}님이 가지고 있는 음식이 없나요? 직접 추가해 보세요!
                     </Text>
                     <View style={styles.customInputRow}>
@@ -851,8 +854,8 @@ export default function MealScreen() {
                         value={customPantryText}
                         onChangeText={setCustomPantryText}
                         placeholder="예: 퀴노아, 렌틸파스타, 코티지치즈"
-                        placeholderTextColor={COLORS.textSecondary}
-                        style={styles.customInput}
+                        placeholderTextColor={colors.textSecondary}
+                        style={[styles.customInput, { borderColor: colors.surfaceMuted, backgroundColor: colors.surfaceElevated, color: colors.text }]}
                         returnKeyType="done"
                         onSubmitEditing={() => {
                           if (customPantryText.trim()) addCustomPantryItem(customPantryText);
@@ -861,12 +864,12 @@ export default function MealScreen() {
                       <TouchableOpacity
                         activeOpacity={0.85}
                         onPress={() => addCustomPantryItem(customPantryText)}
-                        style={styles.customAddButton}
+                        style={[styles.customAddButton, { backgroundColor: colors.surfaceMuted, borderColor: colors.surfaceMuted }]}
                       >
-                        <Text style={styles.customAddButtonText}>추가</Text>
+                        <Text style={[styles.customAddButtonText, { color: colors.text }]}>추가</Text>
                       </TouchableOpacity>
                     </View>
-                    <Text style={styles.customInputHint}>
+                    <Text style={[styles.customInputHint, { color: colors.textSecondary }]}>
                       선택+직접추가 합쳐서 최대 20개까지 가능
                     </Text>
                   </View>
@@ -881,26 +884,26 @@ export default function MealScreen() {
         </Modal>
 
         {result ? (
-          <Card style={styles.resultCard}>
+          <Card style={styles.resultCard} variant="elevated">
             <View style={styles.resultHeaderRow}>
-              <Text style={styles.sectionTitle}>생성된 식단</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>생성된 식단</Text>
               <Badge variant="secondary" text={result.mode === 'pantry' ? '보유음식기반' : '하루 식단'} />
             </View>
 
             {Array.isArray(result.notes) && result.notes.length > 0 ? (
-              <Text style={styles.resultNote}>{result.notes[0]}</Text>
+              <Text style={[styles.resultNote, { color: colors.textSecondary }]}>{result.notes[0]}</Text>
             ) : null}
 
             {result.plan.map((d: any) => (
-              <View key={`day-${d.day}`} style={styles.dayBlock}>
-                <Text style={styles.dayTitle}>Day {d.day}</Text>
+              <View key={`day-${d.day}`} style={[styles.dayBlock, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.dayTitle, { color: colors.text }]}>Day {d.day}</Text>
                 {renderMealRow('아침', d?.meals?.breakfast)}
                 {renderMealRow('점심', d?.meals?.lunch)}
                 {renderMealRow('저녁', d?.meals?.dinner)}
 
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>하루 총합</Text>
-                  <Text style={styles.totalValue}>
+                <View style={[styles.totalRow, { borderTopColor: colors.border }]}>
+                  <Text style={[styles.totalLabel, { color: colors.text }]}>하루 총합</Text>
+                  <Text style={[styles.totalValue, { color: colors.textSecondary }]}>
                     {Math.round(Number(d?.totals?.calories || 0))} kcal · 탄 {Math.round(Number(d?.totals?.carbs_g || 0))}g · 단 {Math.round(Number(d?.totals?.protein_g || 0))}g · 지 {Math.round(Number(d?.totals?.fat_g || 0))}g
                   </Text>
                 </View>
@@ -912,19 +915,19 @@ export default function MealScreen() {
         {/* Meal plan history */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>최근 만든 식단</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>최근 만든 식단</Text>
             <View />
           </View>
 
           {isLoadingLogs ? (
-            <Card style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>불러오는 중…</Text>
-              <Text style={styles.emptyDesc}>잠시만 기다려주세요.</Text>
+            <Card style={styles.emptyCard} variant="elevated">
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>불러오는 중…</Text>
+              <Text style={[styles.emptyDesc, { color: colors.textSecondary }]}>잠시만 기다려주세요.</Text>
             </Card>
           ) : mealPlanLogs.length === 0 ? (
-            <Card style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>아직 기록이 없어요</Text>
-              <Text style={styles.emptyDesc}>식단을 만들면 자동으로 기록에 저장돼요.</Text>
+            <Card style={styles.emptyCard} variant="elevated">
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>아직 기록이 없어요</Text>
+              <Text style={[styles.emptyDesc, { color: colors.textSecondary }]}>식단을 만들면 자동으로 기록에 저장돼요.</Text>
             </Card>
           ) : (
             mealPlanLogs.map((log) => {
@@ -942,25 +945,25 @@ export default function MealScreen() {
               return (
                 <TouchableOpacity
                   key={`mpl-${log.id}`}
-                  style={styles.historyItem}
+                  style={[styles.historyItem, { backgroundColor: colors.surface, borderColor: colors.surfaceMuted }]}
                   onPress={() => navigation.navigate('MealPlanDetail', { id: log.id })}
                 >
-                  <View style={styles.historyIcon}>
-                    <AppIcon name="history" size={20} color={COLORS.textSecondary} />
+                  <View style={[styles.historyIcon, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }]}>
+                    <AppIcon name="history" size={20} color={colors.textSecondary} />
                   </View>
                   <View style={styles.historyContent}>
-                    <Text style={styles.historyTitle} numberOfLines={1}>{title}</Text>
+                    <Text style={[styles.historyTitle, { color: colors.text }]} numberOfLines={1}>{title}</Text>
                     <View style={styles.historyMeta}>
-                      <AppIcon name="access-time" size={12} color={COLORS.textSecondary} />
-                      <Text style={styles.historyTime}>{when}</Text>
-                      <Text style={styles.dot}>•</Text>
-                      <Text style={styles.calories}>{kcal} kcal</Text>
+                      <AppIcon name="access-time" size={12} color={colors.textSecondary} />
+                      <Text style={[styles.historyTime, { color: colors.textSecondary }]}>{when}</Text>
+                      <Text style={[styles.dot, { color: colors.textSecondary }]}>•</Text>
+                      <Text style={[styles.calories, { color: colors.textSecondary }]}>{kcal} kcal</Text>
                     </View>
                   </View>
                   <Badge variant="outline" text={label} />
                   <View style={{ marginLeft: 8, alignItems: 'flex-end' }}>
-                    <Text style={styles.detailHint}>자세히 보기</Text>
-                    <AppIcon name="chevron-right" size={22} color={COLORS.textSecondary} />
+                    <Text style={[styles.detailHint, { color: colors.textSecondary }]}>자세히 보기</Text>
+                    <AppIcon name="chevron-right" size={22} color={colors.textSecondary} />
                   </View>
                 </TouchableOpacity>
               );
@@ -978,11 +981,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.backgroundGray,
   },
   scrollContent: {
-    padding: 16,
+    padding: SPACING.lg,
   },
   header: {
     backgroundColor: COLORS.background,
-    padding: 16,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
     alignItems: 'center',
@@ -999,8 +1003,8 @@ const styles = StyleSheet.create({
   },
   modeChip: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingVertical: 11,
+    borderRadius: RADIUS.sm,
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.background,
@@ -1008,7 +1012,7 @@ const styles = StyleSheet.create({
   },
   modeChipActive: {
     borderColor: COLORS.primary,
-    backgroundColor: '#EEF2FF',
+    backgroundColor: COLORS.blue50,
   },
   modeChipText: {
     fontSize: 13,
@@ -1134,6 +1138,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
+    borderWidth: 1,
     padding: 14,
     maxHeight: '85%',
   },
@@ -1343,7 +1348,7 @@ const styles = StyleSheet.create({
   },
   dayChipActive: {
     borderColor: COLORS.primary,
-    backgroundColor: '#EEF2FF',
+    backgroundColor: COLORS.blue50,
   },
   dayChipText: {
     fontSize: 12,
@@ -1414,8 +1419,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
+    backgroundColor: COLORS.backgroundGray,
+    borderRadius: RADIUS.sm,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -1428,9 +1433,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textSecondary,
   },
-  title: {
+  headerTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '800',
     color: COLORS.text,
   },
   subtitle: {
@@ -1441,21 +1446,22 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     alignItems: 'center',
-    padding: 16,
-    marginBottom: 20,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
   },
   iconCircle: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: COLORS.primary + '15', // 15% opacity
+    borderWidth: 1,
+    backgroundColor: COLORS.blue50,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
   },
   cardTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '800',
     color: COLORS.text,
     marginBottom: 8,
   },
@@ -1487,7 +1493,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '800',
     color: COLORS.text,
   },
   seeAll: {
@@ -1498,9 +1504,9 @@ const styles = StyleSheet.create({
   historyItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.surface,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: RADIUS.md,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -1509,6 +1515,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+    borderWidth: 1,
     backgroundColor: COLORS.background,
     justifyContent: 'center',
     alignItems: 'center',

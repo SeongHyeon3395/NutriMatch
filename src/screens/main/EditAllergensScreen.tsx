@@ -10,10 +10,12 @@ import { Button } from '../../components/ui/Button';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
 import { ALL_ALLERGENS } from '../../constants';
+import { useTheme } from '../../theme/ThemeProvider';
 
 export default function EditAllergensScreen() {
   const navigation = useNavigation();
   const { alert } = useAppAlert();
+  const { colors } = useTheme();
 
   const profile = useUserStore(state => state.profile);
   const updateProfile = useUserStore(state => state.updateProfile);
@@ -61,41 +63,41 @@ export default function EditAllergensScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <AppIcon name="chevron-left" size={26} color={COLORS.text} />
+          <AppIcon name="chevron-left" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>알레르기 수정</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>알레르기 수정</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>검색해서 추가</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>검색해서 추가</Text>
 
-          <View style={styles.searchContainer}>
+          <View style={[styles.searchContainer, { borderColor: colors.border, backgroundColor: colors.background }]}>
             <View style={styles.searchIcon}>
-              <AppIcon name="search" size={20} color={COLORS.textGray} />
+              <AppIcon name="search" size={20} color={colors.textGray} />
             </View>
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, { color: colors.text }]}
               placeholder="알레르기 성분 검색... (예: 땅콩, 우유)"
-              placeholderTextColor={COLORS.textGray}
+              placeholderTextColor={colors.textGray}
               value={allergenSearch}
               onChangeText={setAllergenSearch}
             />
           </View>
 
           {!!filteredAllergens.length && (
-            <View style={styles.suggestions}>
+            <View style={[styles.suggestions, { borderColor: colors.border }] }>
               {filteredAllergens.slice(0, 20).map(a => (
-                <TouchableOpacity key={a} style={styles.suggestionItem} onPress={() => toggleAllergen(a)}>
-                  <Text style={styles.suggestionText}>{a}</Text>
+                <TouchableOpacity key={a} style={[styles.suggestionItem, { borderTopColor: colors.border, backgroundColor: colors.background }]} onPress={() => toggleAllergen(a)}>
+                  <Text style={[styles.suggestionText, { color: colors.text }]}>{a}</Text>
                   <AppIcon
                     name={selectedAllergens.includes(a) ? 'check-circle' : 'plus-circle'}
                     size={18}
-                    color={selectedAllergens.includes(a) ? COLORS.primary : COLORS.textGray}
+                    color={selectedAllergens.includes(a) ? colors.primary : colors.textGray}
                   />
                 </TouchableOpacity>
               ))}
@@ -104,12 +106,12 @@ export default function EditAllergensScreen() {
         </Card>
 
         <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>직접 추가</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>직접 추가</Text>
           <View style={styles.customInputRow}>
             <TextInput
-              style={styles.customInput}
+              style={[styles.customInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
               placeholder="예: 고수, 민트 등"
-              placeholderTextColor={COLORS.textGray}
+              placeholderTextColor={colors.textGray}
               value={customAllergen}
               onChangeText={setCustomAllergen}
             />
@@ -120,14 +122,14 @@ export default function EditAllergensScreen() {
         </Card>
 
         <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>선택된 알레르기 (눌러서 제거)</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>선택된 알레르기 (눌러서 제거)</Text>
           <View style={styles.tags}>
             {selectedAllergens.length === 0 ? (
-              <Text style={styles.emptyText}>없음</Text>
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>없음</Text>
             ) : (
               selectedAllergens.map((a, idx) => (
-                <TouchableOpacity key={`${a}-${idx}`} style={styles.tag} onPress={() => toggleAllergen(a)}>
-                  <Text style={styles.tagText}>{a}</Text>
+                <TouchableOpacity key={`${a}-${idx}`} style={[styles.tag, { backgroundColor: colors.backgroundGray, borderColor: colors.border }]} onPress={() => toggleAllergen(a)}>
+                  <Text style={[styles.tagText, { color: colors.text }]}>{a}</Text>
                 </TouchableOpacity>
               ))
             )}

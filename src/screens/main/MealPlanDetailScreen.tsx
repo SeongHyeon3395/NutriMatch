@@ -10,11 +10,13 @@ import { COLORS } from '../../constants/colors';
 import type { MealPlanDay } from '../../types/mealPlan';
 import type { MealPlanLog } from '../../services/userData';
 import { deleteMealPlanLogRemote, getMealPlanLogRemote } from '../../services/userData';
+import { useTheme } from '../../theme/ThemeProvider';
 
 export default function MealPlanDetailScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { alert } = useAppAlert();
+  const { colors } = useTheme();
 
   const { id } = route.params as { id: number };
   const [log, setLog] = useState<MealPlanLog | null>(null);
@@ -64,12 +66,12 @@ export default function MealPlanDetailScreen() {
 
     return (
       <View style={styles.mealRow}>
-        <Text style={styles.mealLabel}>{label}</Text>
+        <Text style={[styles.mealLabel, { color: colors.textSecondary }]}>{label}</Text>
         <View style={{ flex: 1 }}>
-          <Text style={styles.mealName} numberOfLines={2}>
+          <Text style={[styles.mealName, { color: colors.text }]} numberOfLines={2}>
             {name || '-'}
           </Text>
-          <Text style={styles.mealMeta}>
+          <Text style={[styles.mealMeta, { color: colors.textSecondary }]}>
             {Number.isFinite(grams) ? `${Math.round(grams)}g` : '-'} · {Number.isFinite(cal) ? `${Math.round(cal)} kcal` : '-'}
             {'  '}| 탄 {Number.isFinite(carbs) ? Math.round(carbs) : '-'}g · 단 {Number.isFinite(protein) ? Math.round(protein) : '-'}g · 지 {Number.isFinite(fat) ? Math.round(fat) : '-'}g
           </Text>
@@ -81,12 +83,12 @@ export default function MealPlanDetailScreen() {
   const planDays: MealPlanDay[] = Array.isArray(result?.plan) ? result.plan : [];
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]}>
+      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button">
-          <AppIcon name="chevron-left" size={26} color={COLORS.text} />
+          <AppIcon name="chevron-left" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>식단 기록</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>식단 기록</Text>
         <TouchableOpacity
           onPress={() => {
             if (!log) return;
@@ -116,46 +118,46 @@ export default function MealPlanDetailScreen() {
           style={styles.headerRightBtn}
           accessibilityRole="button"
         >
-          <AppIcon name="delete" size={22} color={COLORS.destructive} />
+          <AppIcon name="delete" size={22} color={colors.destructive} />
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
         {loading ? (
           <View style={styles.loading}>
-            <ActivityIndicator color={COLORS.primary} />
-            <Text style={styles.loadingText}>불러오는 중…</Text>
+            <ActivityIndicator color={colors.text} />
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>불러오는 중…</Text>
           </View>
         ) : null}
 
-        <Card style={styles.metaCard}>
+        <Card style={styles.metaCard} variant="elevated">
           <View style={styles.metaRow}>
             <Badge variant="secondary" text={modeLabel} />
-            <Text style={styles.metaText}>{headerLabel}</Text>
+            <Text style={[styles.metaText, { color: colors.textSecondary }]}>{headerLabel}</Text>
           </View>
           {Array.isArray(result?.notes) && result.notes.length > 0 ? (
-            <Text style={styles.note}>{String(result.notes[0])}</Text>
+            <Text style={[styles.note, { color: colors.textSecondary }]}>{String(result.notes[0])}</Text>
           ) : null}
         </Card>
 
         {planDays.length === 0 ? (
-          <Card style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>표시할 식단이 없어요</Text>
-            <Text style={styles.emptySub}>데이터 형식이 올바르지 않을 수 있습니다.</Text>
+          <Card style={styles.emptyCard} variant="elevated">
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>표시할 식단이 없어요</Text>
+            <Text style={[styles.emptySub, { color: colors.textSecondary }]}>데이터 형식이 올바르지 않을 수 있습니다.</Text>
           </Card>
         ) : (
-          <Card style={styles.planCard}>
-            <Text style={styles.sectionTitle}>하루 식단</Text>
+          <Card style={styles.planCard} variant="elevated">
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>하루 식단</Text>
             {planDays.map((d: any) => (
-              <View key={`day-${d.day}`} style={styles.dayBlock}>
-                <Text style={styles.dayTitle}>Day {d.day}</Text>
+              <View key={`day-${d.day}`} style={[styles.dayBlock, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.dayTitle, { color: colors.text }]}>Day {d.day}</Text>
                 {renderMealRow('아침', d?.meals?.breakfast)}
                 {renderMealRow('점심', d?.meals?.lunch)}
                 {renderMealRow('저녁', d?.meals?.dinner)}
 
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>하루 총합</Text>
-                  <Text style={styles.totalValue}>
+                <View style={[styles.totalRow, { borderTopColor: colors.border }] }>
+                  <Text style={[styles.totalLabel, { color: colors.text }]}>하루 총합</Text>
+                  <Text style={[styles.totalValue, { color: colors.textSecondary }]}>
                     {Math.round(Number(d?.totals?.calories || 0))} kcal · 탄 {Math.round(Number(d?.totals?.carbs_g || 0))}g · 단 {Math.round(Number(d?.totals?.protein_g || 0))}g · 지 {Math.round(Number(d?.totals?.fat_g || 0))}g
                   </Text>
                 </View>

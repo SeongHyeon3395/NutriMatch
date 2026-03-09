@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Image, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNetInfo } from '@react-native-community/netinfo';
 import { COLORS } from '../../constants/colors';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
@@ -10,6 +11,7 @@ import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
 import { getFoodScore100, score100ToBadgeVariant } from '../../services/foodScore';
 import { deleteFoodLogsRemote, getSessionUserId, listFoodLogsRemote } from '../../services/userData';
+import { useTheme } from '../../theme/ThemeProvider';
 
 // Mock Data
 const MOCK_HISTORY = [
@@ -58,24 +60,54 @@ const MOCK_HISTORY = [
 export default function HistoryScreen() {
   const navigation = useNavigation<any>();
   const { alert } = useAppAlert();
+  const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const net = useNetInfo();
+  const isOffline = net.isConnected === false || net.isInternetReachable === false;
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('전체'); // All, Meals, Products
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
-  useFocusEffect(
-    useCallback(() => {
-      return () => {
-        setIsEditMode(false);
-        setSelectedIds({});
-      };
-    }, [])
-  );
+  const isCompact = width < 380;
+  const thumbSize = isCompact ? 40 : 44;
+  const itemPadding = isCompact ? 12 : 16;
+  const metaFont = isCompact ? 11 : 12;
+  const titleFont = isCompact ? 15 : 16;
+  const rightWidth = isCompact ? 80 : 86;
 
   const profile = useUserStore(state => state.profile);
   const foodLogs = useUserStore(state => state.foodLogs);
   const loadFoodLogs = useUserStore(state => state.loadFoodLogs);
   const setFoodLogs = useUserStore(state => state.setFoodLogs);
+
+  const isRemoteImage = (uri?: string) => /^https?:\/\//i.test(String(uri || ''));
+
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      void (async () => {
+        const userId = await getSessionUserId().catch(() => null);
+        if (!alive) return;
+
+        if (userId) {
+          const remote = await listFoodLogsRemote(100).catch(() => null);
+          if (alive && Array.isArray(remote) && typeof setFoodLogs === 'function') {
+            await setFoodLogs(remote);
+          }
+          return;
+        }
+
+        await loadFoodLogs();
+      })();
+
+      return () => {
+        alive = false;
+        setIsEditMode(false);
+        setSelectedIds({});
+      };
+    }, [loadFoodLogs, setFoodLogs])
+  );
 
   const isMaster =
     (profile as any)?.plan_id === 'master' ||
@@ -259,7 +291,13 @@ export default function HistoryScreen() {
   };
 
   const renderItem = ({ item }: { item: any }) => (
-    <TouchableOpacity style={styles.itemCard} onPress={() => handlePressItem(item)}>
+    <TouchableOpacity
+      style={[
+        styles.itemCard,
+        { padding: itemPadding, backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted },
+      ]}
+      onPress={() => handlePressItem(item)}
+    >
       <View style={styles.itemLeft}>
         {isEditMode && item?.__kind === 'real' ? (
           <TouchableOpacity
@@ -271,41 +309,44 @@ export default function HistoryScreen() {
             <AppIcon
               name={selectedIds[String(item.id)] ? 'check-box' : 'check-box-outline-blank'}
               size={22}
-              color={selectedIds[String(item.id)] ? COLORS.primary : COLORS.textSecondary}
+                color={selectedIds[String(item.id)] ? colors.primary : colors.textSecondary}
             />
           </TouchableOpacity>
         ) : null}
 
-        {typeof item?.imageUri === 'string' && item.imageUri.trim() ? (
-          <Image source={{ uri: item.imageUri }} style={styles.thumb} />
+        {typeof item?.imageUri === 'string' && item.imageUri.trim() && !(isOffline && isRemoteImage(item.imageUri)) ? (
+          <Image source={{ uri: item.imageUri }} style={[styles.thumb, { width: thumbSize, height: thumbSize, backgroundColor: colors.border }]} />
         ) : (
-          <View style={[styles.thumb, styles.thumbFallback]}>
-            <AppIcon name={item.type === 'meal' ? 'restaurant' : 'qr-code-scanner'} size={18} color={COLORS.textSecondary} />
+          <View style={[styles.thumb, styles.thumbFallback, { width: thumbSize, height: thumbSize, backgroundColor: colors.background, borderColor: colors.border }]}>
+            {isOffline && isRemoteImage(item?.imageUri) ? (
+              <Text style={[styles.thumbOfflineText, { color: colors.textSecondary }]}>오프라인</Text>
+            ) : (
+              <AppIcon name={item.type === 'meal' ? 'restaurant' : 'qr-code-scanner'} size={18} color={colors.textSecondary} />
+            )}
           </View>
         )}
       </View>
       
       <View style={styles.itemContent}>
-        <Text style={styles.itemTitle} numberOfLines={1} ellipsizeMode="tail">{item.title}</Text>
+        <Text style={[styles.itemTitle, { fontSize: titleFont, color: colors.text }]} numberOfLines={1} ellipsizeMode="tail">{item.title}</Text>
         <View style={styles.itemMeta}>
-          <AppIcon name="calendar-today" size={12} color={COLORS.textSecondary} />
-          <Text style={styles.itemDate} numberOfLines={1} ellipsizeMode="tail">{item.date}</Text>
-          <Text style={styles.dot}>•</Text>
-          <Text style={styles.itemCalories} numberOfLines={1} ellipsizeMode="tail">{item.calories} kcal</Text>
+          <AppIcon name="calendar-today" size={isCompact ? 11 : 12} color={colors.textSecondary} />
+          <Text style={[styles.itemDate, { fontSize: metaFont, color: colors.textSecondary }]} numberOfLines={1} ellipsizeMode="tail">{item.date}</Text>
+          <Text style={[styles.itemCalories, { fontSize: metaFont, color: colors.textSecondary }]} numberOfLines={1} ellipsizeMode="tail">{item.calories} kcal</Text>
         </View>
       </View>
 
-      <View style={styles.itemRight}>
+      <View style={[styles.itemRight, { width: rightWidth }]}>
         <Badge 
           variant={score100ToBadgeVariant(item.score100)}
           text={typeof item.score100 === 'number' ? `${item.score100}점` : '-'}
           numberOfLines={1}
           ellipsizeMode="tail"
-          style={{ alignSelf: 'center', maxWidth: 72 }}
-          textStyle={{ fontSize: 11 }}
+          style={{ alignSelf: 'center', maxWidth: isCompact ? 68 : 72 }}
+          textStyle={{ fontSize: isCompact ? 10 : 11 }}
         />
-        <View style={{ marginLeft: 8 }}>
-          <AppIcon name="chevron-right" size={22} color={COLORS.textSecondary} />
+        <View style={{ marginLeft: isCompact ? 4 : 8 }}>
+          <AppIcon name="chevron-right" size={isCompact ? 20 : 22} color={colors.textSecondary} />
         </View>
       </View>
     </TouchableOpacity>
@@ -324,14 +365,14 @@ export default function HistoryScreen() {
 
   const renderEmpty = () => (
     <Card style={styles.emptyCard}>
-      <Text style={styles.emptyTitle}>아직 기록이 없어요</Text>
-      <Text style={styles.emptyDesc}>음식을 스캔해 기록을 남겨보세요.</Text>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>아직 기록이 없어요</Text>
+      <Text style={[styles.emptyDesc, { color: colors.textSecondary }]}>음식을 스캔해 기록을 남겨보세요.</Text>
     </Card>
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.topBar}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]}> 
+      <View style={[styles.topBar, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         {navigation?.canGoBack?.() ? (
           <TouchableOpacity
             onPress={() => navigation.goBack()}
@@ -339,41 +380,41 @@ export default function HistoryScreen() {
             accessibilityRole="button"
             accessibilityLabel="뒤로가기"
           >
-            <AppIcon name="chevron-left" size={28} color={COLORS.text} />
+            <AppIcon name="chevron-left" size={28} color={colors.text} />
           </TouchableOpacity>
         ) : null}
-        <Text style={styles.topBarTitle}>기록</Text>
+        <Text style={[styles.topBarTitle, { color: colors.text }]}>기록</Text>
         {!isEditMode ? (
           <TouchableOpacity onPress={handleEditPress} style={[styles.headerAction, styles.topBarRight]}>
-            <Text style={styles.headerActionText}>편집</Text>
+            <Text style={[styles.headerActionText, { color: colors.primary }]}>편집</Text>
           </TouchableOpacity>
         ) : (
           <View style={[styles.headerEditActions, styles.topBarRight]}>
             <TouchableOpacity onPress={toggleSelectAll} style={styles.headerAction}>
-              <Text style={styles.headerActionText}>{isAllSelected ? '선택 해제' : '모두 선택'}</Text>
+              <Text style={[styles.headerActionText, { color: colors.primary }]}>{isAllSelected ? '선택 해제' : '모두 선택'}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={handleDeleteSelected} style={styles.headerAction}>
-              <Text style={styles.headerDeleteText}>삭제({selectedCount})</Text>
+              <Text style={[styles.headerDeleteText, { color: colors.danger }]}>삭제({selectedCount})</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setIsEditMode(false)} style={styles.headerAction}>
-              <Text style={styles.headerDoneText}>완료</Text>
+              <Text style={[styles.headerDoneText, { color: colors.textSecondary }]}>완료</Text>
             </TouchableOpacity>
           </View>
         )}
       </View>
 
-      <View style={styles.headerBody}>
+      <View style={[styles.headerBody, { backgroundColor: colors.backgroundGray, borderBottomColor: colors.border }]}>
         {/* Search Bar */}
-        <View style={styles.searchContainer}>
+        <View style={[styles.searchContainer, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }]}> 
           <View style={styles.searchIcon}>
-            <AppIcon name="search" size={20} color={COLORS.textSecondary} />
+            <AppIcon name="search" size={20} color={colors.textSecondary} />
           </View>
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: colors.text }]}
             placeholder="기록 검색..."
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholderTextColor={COLORS.textSecondary}
+            placeholderTextColor={colors.textSecondary}
           />
         </View>
 
@@ -384,13 +425,16 @@ export default function HistoryScreen() {
               key={filter}
               style={[
                 styles.filterChip,
+                { backgroundColor: colors.surface, borderColor: colors.surfaceMuted },
                 activeFilter === filter && styles.activeFilterChip,
+                activeFilter === filter && { backgroundColor: colors.primary, borderColor: colors.primary },
               ]}
               onPress={() => setActiveFilter(filter)}
             >
               <Text
                 style={[
                   styles.filterText,
+                  { color: colors.textSecondary },
                   activeFilter === filter && styles.activeFilterText,
                 ]}
               >
@@ -399,13 +443,15 @@ export default function HistoryScreen() {
             </TouchableOpacity>
           ))}
         </View>
+
+        <Text style={[styles.historyHint, { color: colors.textSecondary }]}>히스토리는 최근 50개까지 저장돼요.</Text>
       </View>
 
       <FlatList
         data={historyData}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { padding: isCompact ? 12 : 16 }]}
         ListEmptyComponent={renderEmpty}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews
@@ -453,6 +499,12 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
+  },
+  historyHint: {
+    marginTop: 10,
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
   },
   headerEditActions: {
     flexDirection: 'row',
@@ -566,9 +618,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
+  thumbOfflineText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.textSecondary,
+  },
   itemContent: {
     flex: 1,
     minWidth: 0,
+    marginRight: 8,
   },
   itemTitle: {
     fontSize: 16,
@@ -579,24 +637,26 @@ const styles = StyleSheet.create({
   itemMeta: {
     flexDirection: 'row',
     alignItems: 'center',
+    minWidth: 0,
   },
   itemDate: {
     fontSize: 12,
     color: COLORS.textSecondary,
     marginLeft: 4,
-  },
-  dot: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    marginHorizontal: 6,
+    flex: 1,
   },
   itemCalories: {
     fontSize: 12,
     color: COLORS.textSecondary,
     fontWeight: '500',
+    marginLeft: 8,
+    flexShrink: 0,
   },
   itemRight: {
     flexDirection: 'row',
     alignItems: 'center',
+    width: 86,
+    justifyContent: 'space-between',
+    marginLeft: 4,
   },
 });

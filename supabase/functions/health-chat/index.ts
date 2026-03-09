@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,6 +12,16 @@ function jsonResponse(body: any, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+function getBearerToken(req: Request) {
+  const h = req.headers.get('authorization') || req.headers.get('Authorization') || '';
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  return m?.[1] || '';
 }
 
 function buildSystemPrompt() {
@@ -34,8 +45,27 @@ function buildSystemPrompt() {
     '- 가능하면 선택지(2~4개)로 제시한다.',
     '- 사용자의 목표(감량/유지/증량), 알레르기, 선호가 주어지면 반드시 반영한다.',
     '- 의학적 진단/처방은 하지 말고, 위험 신호가 있으면 전문가 상담을 권한다.',
-    '- 한국어로 답한다.',
+    '- 사용자가 쓴 언어를 최대한 따라 답한다. 영어/일본어/중국어 질문이면 해당 언어로 답한다.',
+    '- 한국어와 영어가 섞인 질문이면 너무 딱딱하게 한 언어만 고집하지 말고, 사용자가 이해하기 쉬운 자연스러운 언어로 답한다.',
+    '- 언어가 불명확하면 기본은 한국어로 답한다.',
   ].join('\n');
+}
+
+function detectReplyLanguage(message: string): 'ko' | 'en' | 'ja' | 'zh' {
+  const text = String(message || '').trim();
+  if (!text) return 'ko';
+
+  const jaMatches = text.match(/[\u3040-\u30ff]/g) || [];
+  if (jaMatches.length >= 2) return 'ja';
+
+  const zhHints = /(减肥|增肌|卡路里|热量|蛋白质|脂肪|碳水|饮食|健康|运动|过敏|可以吃|能吃|早餐|午餐|晚餐)/.test(text);
+  if (zhHints) return 'zh';
+
+  const latinMatches = text.match(/[A-Za-z]/g) || [];
+  const hangulMatches = text.match(/[가-힣]/g) || [];
+  if (latinMatches.length >= 4 && latinMatches.length >= hangulMatches.length * 2) return 'en';
+
+  return 'ko';
 }
 
 function normalizeText(s: any) {
@@ -56,7 +86,14 @@ function isAllowedHealthTopic(message: string) {
     '영양', '영양성분', '칼로리', 'kcal', '매크로', '탄수', '탄수화물', '단백질', '지방', '나트륨', '당', '당류',
     '알레르기', '알러지', '혈당', '혈압', '콜레스테롤', '포만감', '소화',
     '음식', '먹어', '먹으면', '먹어도', '먹지', '피해야', '추천', '대체', '간식', '아침', '점심', '저녁',
-    'meal', 'diet', 'food', 'nutrition', 'calorie', 'protein', 'carb', 'fat', 'workout', 'exercise', 'health',
+    'meal', 'diet', 'food', 'nutrition', 'calorie', 'calories', 'protein', 'carb', 'carbs', 'fat', 'sugar', 'sodium',
+    'cholesterol', 'fiber', 'allergy', 'allergies', 'digest', 'digestion', 'workout', 'exercise', 'health',
+    'lose weight', 'gain weight', 'maintain weight', 'body fat', 'muscle', 'can i eat', 'should i eat', 'is this healthy',
+    'healthy', 'snack', 'breakfast', 'lunch', 'dinner', 'ingredient', 'ingredients',
+    '健康', '食事', 'ダイエット', '運動', 'カロリー', '栄養', 'たんぱく質', 'タンパク質', '炭水化物', '脂質', '脂肪',
+    'アレルギー', '食べて', '食べても', '食べる', '朝ごはん', '昼ごはん', '夕ごはん', '筋トレ',
+    '健康', '饮食', '减肥', '增肌', '运动', '卡路里', '热量', '营养', '蛋白质', '碳水', '脂肪', '过敏',
+    '可以吃', '能吃', '早餐', '午餐', '晚餐', '零食',
   ];
 
   // 명확히 오프토픽을 시사하는 키워드(보수적으로)
@@ -78,7 +115,17 @@ function isAllowedHealthTopic(message: string) {
   return false;
 }
 
-function offTopicReply() {
+function offTopicReply(message?: string) {
+  const lang = detectReplyLanguage(message || '');
+  if (lang === 'en') {
+    return 'Sorry, I can only help with health, diet, food, nutrition, and exercise related questions.\nFor example: “Can I eat this?”, “Is this meal healthy?”, or “What is a good high-protein snack?”';
+  }
+  if (lang === 'ja') {
+    return '申し訳ありませんが、健康・食事・栄養・運動に関する質問にのみお答えできます。\n例えば: 「これは食べてもいい？」「この食事はヘルシー？」「高たんぱくなおやつは何？」';
+  }
+  if (lang === 'zh') {
+    return '抱歉，我只能回答与健康、饮食、营养和运动相关的问题。\n例如：“这个可以吃吗？”、“这顿饭健康吗？”、“有什么高蛋白零食推荐？”';
+  }
   return '죄송하지만 저는 건강/식단/음식 관련 질문에만 답할 수 있어요.\n예) “닭가슴살 대신 뭐가 좋아요?”, “오늘 점심 뭐 먹을까요?”, “이 음식 먹어도 될까요?”';
 }
 
@@ -130,7 +177,16 @@ async function callGeminiText({ system, contents, model }: { system: string; con
     json?.candidates?.[0]?.content?.parts?.[0]?.text ||
     '';
 
-  return { text: String(text || '').trim(), raw: json };
+  return {
+    text: String(text || '').trim(),
+    raw: json,
+    totalTokens: Number(json?.usageMetadata?.totalTokenCount ?? 0) || 0,
+  };
+}
+
+function estimateTokensFallback(message: string, reply: string) {
+  const totalChars = `${message || ''}\n${reply || ''}`.length;
+  return Math.max(1, Math.ceil(totalChars / 2.6));
 }
 
 serve(async (req: Request) => {
@@ -143,6 +199,52 @@ serve(async (req: Request) => {
   }
 
   try {
+    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
+      return jsonResponse({ ok: false, message: '서버 설정 오류: SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY 중 누락된 값이 있습니다.' }, 500);
+    }
+
+    const token = getBearerToken(req);
+    if (!token) {
+      return jsonResponse({ ok: false, message: '로그인이 필요합니다.' }, 401);
+    }
+
+    const adminSupabase = createClient(supabaseUrl, supabaseServiceKey);
+    const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    const { data: userData, error: userErr } = await adminSupabase.auth.getUser(token);
+    if (userErr || !userData?.user?.id) {
+      return jsonResponse({ ok: false, message: '유효하지 않은 세션입니다. 다시 로그인해주세요.' }, 401);
+    }
+
+    const { data: statusData, error: statusError } = await userSupabase.rpc('get_monthly_chat_token_status', {
+      p_month: null,
+    });
+    if (statusError) throw statusError;
+    const statusRow = Array.isArray(statusData) ? statusData[0] : statusData;
+    const beforeRemaining = Number(statusRow?.remaining ?? 0) || 0;
+    const planId = String(statusRow?.plan_id || 'free');
+    const planLimit = Number(statusRow?.limit_value ?? 0) || 0;
+
+    if (beforeRemaining <= 0) {
+      return jsonResponse(
+        {
+          ok: true,
+          data: {
+            reply: '이번 달 챗봇 토큰을 모두 사용했어요. 플랜 업그레이드 후 다시 이용해주세요.',
+            model: 'quota',
+            token: { used: planLimit, remaining: 0, limit: planLimit, planId },
+          },
+        },
+        200
+      );
+    }
+
     const payload = await req.json().catch(() => ({}));
     const message = String(payload?.message || '').trim();
     const history = Array.isArray(payload?.history) ? payload.history : [];
@@ -153,7 +255,7 @@ serve(async (req: Request) => {
     }
 
     if (!isAllowedHealthTopic(message)) {
-      return jsonResponse({ ok: true, data: { reply: offTopicReply(), model: 'policy' } }, 200);
+      return jsonResponse({ ok: true, data: { reply: offTopicReply(message), model: 'policy' } }, 200);
     }
 
     const model = Deno.env.get('GEMINI_TEXT_MODEL') || Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash-lite';
@@ -169,7 +271,47 @@ serve(async (req: Request) => {
 
     const reply = out.text || '답변을 생성하지 못했어요. 질문을 조금 더 구체적으로 해주세요.';
 
-    return jsonResponse({ ok: true, data: { reply, model } }, 200);
+    const usedTokens = out.totalTokens > 0 ? out.totalTokens : estimateTokensFallback(message, reply);
+
+    const { data: consumeData, error: consumeError } = await userSupabase.rpc('consume_monthly_chat_tokens', {
+      p_tokens: usedTokens,
+      p_month: null,
+    });
+    if (consumeError) throw consumeError;
+
+    const consumeRow = Array.isArray(consumeData) ? consumeData[0] : consumeData;
+    const allowed = Boolean(consumeRow?.allowed);
+    const remaining = Number(consumeRow?.remaining ?? 0) || 0;
+    const limitValue = Number(consumeRow?.limit_value ?? planLimit) || planLimit;
+    const usedValue = Number(consumeRow?.used ?? 0) || 0;
+
+    if (!allowed) {
+      return jsonResponse(
+        {
+          ok: true,
+          data: {
+            reply: '이번 달 챗봇 토큰을 모두 사용했어요. 플랜 업그레이드 후 다시 이용해주세요.',
+            model: 'quota',
+            token: { used: usedValue, remaining, limit: limitValue, planId: String(consumeRow?.plan_id || planId) },
+          },
+        },
+        200
+      );
+    }
+
+    return jsonResponse({
+      ok: true,
+      data: {
+        reply,
+        model,
+        token: {
+          used: usedValue,
+          remaining,
+          limit: limitValue,
+          planId: String(consumeRow?.plan_id || planId),
+        },
+      },
+    }, 200);
   } catch (e: any) {
     return jsonResponse({ ok: false, message: String(e?.message || e || 'UNKNOWN_ERROR') }, 500);
   }

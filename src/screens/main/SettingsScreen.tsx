@@ -10,8 +10,8 @@ import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
 import { supabase } from '../../services/supabaseClient';
 import { markUserInitiatedSignOut } from '../../services/authSignals';
-import { getSessionUserId, resetMyAccountDataRemote } from '../../services/userData';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { resetMyAccountDataRemote } from '../../services/userData';
+import { useTheme, type ThemeMode } from '../../theme/ThemeProvider';
 
 type RowProps = {
   title: string;
@@ -21,6 +21,8 @@ type RowProps = {
 };
 
 function Row({ title, description, onPress, right }: RowProps) {
+  const { colors } = useTheme();
+
   return (
     <TouchableOpacity
       activeOpacity={onPress ? 0.8 : 1}
@@ -29,18 +31,73 @@ function Row({ title, description, onPress, right }: RowProps) {
       style={styles.row}
     >
       <View style={{ flex: 1 }}>
-        <Text style={styles.rowTitle}>{title}</Text>
-        {description ? <Text style={styles.rowDesc}>{description}</Text> : null}
+        <Text style={[styles.rowTitle, { color: colors.text }]}>{title}</Text>
+        {description ? <Text style={[styles.rowDesc, { color: colors.textSecondary }]}>{description}</Text> : null}
       </View>
-      {right ?? <AppIcon name="chevron-right" size={22} color={COLORS.textSecondary} />}
+      {right ?? <AppIcon name="chevron-right" size={22} color={colors.textSecondary} />}
+    </TouchableOpacity>
+  );
+}
+
+type ThemeOptionRowProps = {
+  title: string;
+  description: string;
+  iconName?: React.ComponentProps<typeof AppIcon>['name'];
+  selected?: boolean;
+  onPress: () => void;
+};
+
+function ThemeOptionRow({ title, description, iconName, selected, onPress }: ThemeOptionRowProps) {
+  const { colors } = useTheme();
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.88}
+      onPress={onPress}
+      style={[
+        styles.themeOptionRow,
+        {
+          backgroundColor: selected ? colors.primary : colors.background,
+          borderColor: selected ? colors.primary : colors.border,
+        },
+      ]}
+    >
+      <View style={styles.themeOptionTextCol}>
+        <Text style={[styles.themeOptionTitle, { color: selected ? '#FFFFFF' : colors.text }]}>{title}</Text>
+        <Text
+          style={[
+            styles.themeOptionDesc,
+            { color: selected ? 'rgba(255,255,255,0.82)' : colors.textSecondary },
+          ]}
+        >
+          {description}
+        </Text>
+      </View>
+
+      <View style={styles.themeOptionRight}>
+        {iconName ? (
+          <AppIcon
+            name={iconName}
+            size={22}
+            color={selected ? '#FFFFFF' : colors.textSecondary}
+          />
+        ) : null}
+      </View>
     </TouchableOpacity>
   );
 }
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
-  const { alert } = useAppAlert();
+  const { alert, dismiss } = useAppAlert();
   const clearAllData = useUserStore(state => state.clearAllData);
+  const { colors, mode, setMode } = useTheme();
+
+  const themeLabelMap: Record<ThemeMode, string> = {
+    system: '시스템',
+    light: '라이트',
+    dark: '다크',
+  };
 
   const handleLogout = useCallback(() => {
     alert({
@@ -104,34 +161,87 @@ export default function SettingsScreen() {
     });
   }, [alert, clearAllData, navigation]);
 
+  const handleThemeMode = useCallback(() => {
+    alert({
+      title: '테마 설정',
+      message: '앱 전체 색상 모드를 선택하세요.',
+      content: (
+        <View style={styles.themeOptionsWrap}>
+          <ThemeOptionRow
+            title="시스템"
+            description="휴대폰 설정을 따라갑니다."
+            iconName="brightness-auto"
+            selected={mode === 'system'}
+            onPress={() => {
+              void setMode('system');
+              dismiss();
+            }}
+          />
+          <ThemeOptionRow
+            title="라이트"
+            description="항상 밝은 화면으로 표시합니다."
+            iconName="light-mode"
+            selected={mode === 'light'}
+            onPress={() => {
+              void setMode('light');
+              dismiss();
+            }}
+          />
+          <ThemeOptionRow
+            title="다크"
+            description="항상 어두운 화면으로 표시합니다."
+            iconName="dark-mode"
+            selected={mode === 'dark'}
+            onPress={() => {
+              void setMode('dark');
+              dismiss();
+            }}
+          />
+        </View>
+      ),
+      actions: [{ text: '닫기', variant: 'outline' }],
+    });
+  }, [alert, dismiss, mode, setMode]);
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <AppIcon name="chevron-left" size={26} color={COLORS.text} />
+          <AppIcon name="chevron-left" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>설정</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>설정</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
         <Card style={styles.card}>
           <Row
+            title="테마"
+            description="라이트 / 다크 / 시스템"
+            onPress={handleThemeMode}
+            right={<Text style={[styles.rightLabel, { color: colors.primary }]}>{themeLabelMap[mode]}</Text>}
+          />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <Row
             title="내 정보"
             description="닉네임/목표/알레르기 등"
             onPress={() => navigation.navigate('PersonalInfo' as never)}
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <Row
             title="알림 설정"
             description="식사 기록/요약 알림 관리"
             onPress={() => navigation.navigate('NotificationSettings' as never)}
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <Row title="구독 관리" description="플랜/월간 제공량 확인" onPress={() => navigation.navigate('Subscription' as never)} />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <Row title="고객 센터" description="문의 및 FAQ" onPress={() => navigation.navigate('HelpCenter' as never)} />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <Row title="개인정보 및 보안" onPress={() => navigation.navigate('Privacy' as never)} />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <Row title="서비스 이용약관" onPress={() => navigation.navigate('Terms' as never)} />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <Row title="개인정보 처리방침" onPress={() => navigation.navigate('PrivacyPolicy' as never)} />
         </Card>
 
@@ -141,7 +251,7 @@ export default function SettingsScreen() {
             description="신체정보/식단/히스토리 초기화"
             onPress={handleResetAccountData}
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <Row title="로그아웃" onPress={handleLogout} />
         </Card>
       </ScrollView>
@@ -157,8 +267,8 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
@@ -171,12 +281,12 @@ const styles = StyleSheet.create({
   headerTitle: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '800',
     color: COLORS.text,
   },
   content: {
-    padding: SPACING.lg,
+    padding: 20,
     gap: SPACING.md,
   },
   card: {
@@ -202,7 +312,41 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: COLORS.border,
     marginLeft: SPACING.md,
+  },
+  rightLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  themeOptionsWrap: {
+    gap: 10,
+  },
+  themeOptionRow: {
+    minHeight: 68,
+    borderWidth: 1,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  themeOptionTextCol: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  themeOptionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  themeOptionDesc: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  themeOptionRight: {
+    minWidth: 36,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
   },
 });

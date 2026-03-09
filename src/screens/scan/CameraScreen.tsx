@@ -8,7 +8,6 @@ import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { COLORS } from '../../constants/colors';
 import { pickPhotoFromLibrary } from '../../services/imagePicker';
-import { BowlGuideOverlay } from '../../components/camera/BowlGuideOverlay';
 import { CameraBottomBar, FlashMode } from '../../components/camera/CameraBottomBar';
 import { CameraPermissionView } from '../../components/camera/CameraPermissionView';
 import { TouchableOpacity } from 'react-native';
@@ -171,8 +170,6 @@ export default function CameraScreen() {
           photo
         />
       )}
-
-      <BowlGuideOverlay size={Math.max(240, Math.min(320, screenWidth - 72))} />
 
       <Animated.View pointerEvents="none" style={[styles.flashOverlay, flashStyle]} />
 

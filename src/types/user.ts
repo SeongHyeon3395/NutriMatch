@@ -2,6 +2,7 @@
 export type BodyGoalType = 'diet' | 'bulking' | 'lean_bulk' | 'maintenance' | 'recomp';
 export type HealthDietType = 'low_sodium' | 'low_carb' | 'diabetic' | 'low_fat' | 'high_protein' | 'intermittent_fasting' | 'anti_inflammatory' | 'none_health';
 export type LifestyleDietType = 'vegetarian' | 'vegan' | 'pescatarian' | 'flexitarian' | 'ketogenic' | 'paleo' | 'gluten_free' | 'none_lifestyle';
+export type AppThemeMode = 'light' | 'dark' | 'system';
 
 // 사용자 프로필
 export interface UserProfile {
@@ -23,9 +24,12 @@ export interface UserProfile {
   allergens: string[];
   
   // Plan & Quota
-  plan_id?: 'free' | 'premium' | 'master';
+  plan_id?: 'free' | 'plus' | 'pro' | 'premium' | 'master';
   premium_quota_remaining?: number;
   free_image_quota_remaining?: number;
+  chatTokensMonth?: string;
+  chatTokensUsed?: number;
+  themeMode?: AppThemeMode;
 
   // Legacy fields (optional for compatibility)
   goal?: string;

@@ -28,6 +28,7 @@ import { useUserStore } from '../../store/userStore';
 import { PRIVACY_POLICY_URL } from '../../config';
 import { deleteMyAccountRemote, getSessionUserId } from '../../services/userData';
 import { supabase } from '../../services/supabaseClient';
+import { useTheme } from '../../theme/ThemeProvider';
 
 type PermissionStatus = 'granted' | 'denied' | 'unavailable' | 'unknown';
 
@@ -52,6 +53,7 @@ async function openAppSettings() {
 export default function PrivacySecurityScreen() {
   const navigation = useNavigation();
   const { alert } = useAppAlert();
+  const { colors } = useTheme();
 
   const profile = useUserStore(state => state.profile);
   const foodLogs = useUserStore(state => state.foodLogs);
@@ -218,7 +220,7 @@ export default function PrivacySecurityScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <Modal
         transparent
         visible={showDeleteConfirm}
@@ -233,26 +235,26 @@ export default function PrivacySecurityScreen() {
           <View style={styles.confirmCenter} pointerEvents="box-none">
             <Card style={styles.confirmCard}>
               <View style={styles.confirmTitleRow}>
-                <Text style={styles.confirmTitle}>계정 삭제</Text>
+                <Text style={[styles.confirmTitle, { color: colors.text }]}>계정 삭제</Text>
                 <TouchableOpacity
                   onPress={closeDeleteConfirm}
                   style={styles.confirmCloseButton}
                   accessibilityRole="button"
                   disabled={isDeletingAccount}
                 >
-                  <AppIcon name="close" size={20} color={COLORS.textGray} />
+                  <AppIcon name="close" size={20} color={colors.textGray} />
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.confirmMessage}>
+              <Text style={[styles.confirmMessage, { color: colors.textSecondary }]}>
                 계정을 삭제하면 서버에 저장된 데이터가 모두 삭제됩니다.
               </Text>
               <View style={styles.confirmBullets}>
-                <Text style={styles.confirmBullet}>• 계정 정보(이메일/닉네임/프로필 등)</Text>
-                <Text style={styles.confirmBullet}>• 음식 분석 기록(히스토리/식단 기록) 및 관련 이미지</Text>
-                <Text style={styles.confirmBullet}>• 결제 내역/플랜 정보(구독/구매 기록 등)</Text>
+                <Text style={[styles.confirmBullet, { color: colors.text }]}>• 계정 정보(이메일/닉네임/프로필 등)</Text>
+                <Text style={[styles.confirmBullet, { color: colors.text }]}>• 음식 분석 기록(히스토리/식단 기록) 및 관련 이미지</Text>
+                <Text style={[styles.confirmBullet, { color: colors.text }]}>• 결제 내역/플랜 정보(구독/구매 기록 등)</Text>
               </View>
-              <Text style={styles.confirmHint}>
+              <Text style={[styles.confirmHint, { color: colors.textSecondary }]}>
                 계속하려면 아래 입력칸에 “{requiredDeletePhrase}”를 입력해주세요.
               </Text>
 
@@ -260,11 +262,11 @@ export default function PrivacySecurityScreen() {
                 value={deleteConfirmText}
                 onChangeText={setDeleteConfirmText}
                 placeholder={requiredDeletePhrase}
-                placeholderTextColor={COLORS.textSecondary}
+                placeholderTextColor={colors.textSecondary}
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isDeletingAccount}
-                style={styles.confirmInput}
+                style={[styles.confirmInput, { borderColor: colors.border, backgroundColor: colors.background, color: colors.text }]}
               />
 
               <View style={styles.confirmActions}>
@@ -302,41 +304,41 @@ export default function PrivacySecurityScreen() {
           </Pressable>
           <View style={styles.loadingCenter} pointerEvents="box-none">
             <Card style={styles.loadingCard}>
-              <ActivityIndicator color={COLORS.primary} />
-              <Text style={styles.loadingTitle}>탈퇴 처리 중…</Text>
-              <Text style={styles.loadingMessage}>잠시만 기다려주세요.</Text>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={[styles.loadingTitle, { color: colors.text }]}>탈퇴 처리 중…</Text>
+              <Text style={[styles.loadingMessage, { color: colors.textSecondary }]}>잠시만 기다려주세요.</Text>
             </Card>
           </View>
         </View>
       </Modal>
 
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={styles.backButton}
           disabled={isDeletingAccount}
         >
-          <AppIcon name="chevron-left" size={26} color={COLORS.text} />
+          <AppIcon name="chevron-left" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>개인정보</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>개인정보</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
         <Card style={styles.card}>
           <View style={styles.cardHeaderRow}>
-            <Text style={styles.cardTitle}>개인정보 처리방침 (필수)</Text>
+            <Text style={[styles.cardTitle, { color: colors.text }]}>개인정보 처리방침 (필수)</Text>
             <Badge variant="outline" text="Privacy Policy" />
           </View>
-          <Text style={styles.paragraph}>
+          <Text style={[styles.paragraph, { color: colors.textSecondary }]}>
             뉴핏은 서비스 제공을 위해 필요한 범위에서만 개인정보를 처리합니다. 자세한 내용은 개인정보 처리방침에서 확인할 수 있어요.
           </Text>
 
           <View style={styles.bullets}>
-            <Text style={styles.bullet}>• 수집 항목: 이메일/닉네임/프로필, 신체 정보(선택), 사진(선택), 서비스 이용 기록/기기 정보</Text>
-            <Text style={styles.bullet}>• 수집 목적: 서비스 제공(분석/기록/맞춤 기능), 기능 개선(통계), 오류 분석</Text>
-            <Text style={styles.bullet}>• 보유 기간: 목적 달성 시 또는 사용자가 삭제 요청 시</Text>
-            <Text style={styles.bullet}>• 처리 위탁/제공: Supabase(인증/DB/스토리지), AI 분석 제공자(이미지 분석) 등</Text>
+            <Text style={[styles.bullet, { color: colors.text }]}>• 수집 항목: 이메일/닉네임/프로필, 신체 정보(선택), 사진(선택), 서비스 이용 기록/기기 정보</Text>
+            <Text style={[styles.bullet, { color: colors.text }]}>• 수집 목적: 서비스 제공(분석/기록/맞춤 기능), 기능 개선(통계), 오류 분석</Text>
+            <Text style={[styles.bullet, { color: colors.text }]}>• 보유 기간: 목적 달성 시 또는 사용자가 삭제 요청 시</Text>
+            <Text style={[styles.bullet, { color: colors.text }]}>• 처리 위탁/제공: Supabase(인증/DB/스토리지), AI 분석 제공자(이미지 분석) 등</Text>
           </View>
 
           <Button
@@ -348,8 +350,8 @@ export default function PrivacySecurityScreen() {
         </Card>
 
         <Card style={styles.card}>
-          <Text style={styles.cardTitle}>권한 관리</Text>
-          <Text style={styles.paragraph}>앱에 부여한 권한을 확인하고, 설정에서 변경할 수 있어요.</Text>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>권한 관리</Text>
+          <Text style={[styles.paragraph, { color: colors.textSecondary }]}>앱에 부여한 권한을 확인하고, 설정에서 변경할 수 있어요.</Text>
 
           <View style={styles.list}>
             {permissionRows.map(row => {
@@ -357,8 +359,8 @@ export default function PrivacySecurityScreen() {
               return (
                 <View key={row.title} style={styles.listRow}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.rowTitle}>{row.title}</Text>
-                    <Text style={styles.rowDesc}>{row.desc}</Text>
+                    <Text style={[styles.rowTitle, { color: colors.text }]}>{row.title}</Text>
+                    <Text style={[styles.rowDesc, { color: colors.textSecondary }]}>{row.desc}</Text>
                   </View>
                   <View style={styles.rowRight}>
                     <Badge variant={badge.variant} text={badge.text} />
@@ -377,7 +379,7 @@ export default function PrivacySecurityScreen() {
               // 일부 기기에서 즉시 반영되는 케이스도 있어 한 번 더 호출
               refreshAndroidPermissions();
             }}
-            icon={<AppIcon name="settings" size={18} color={COLORS.primary} />}
+            icon={<AppIcon name="settings" size={18} color={colors.primary} />}
             style={{ width: '100%' }}
           />
 
@@ -394,8 +396,8 @@ export default function PrivacySecurityScreen() {
         </Card>
 
         <Card style={styles.card}>
-          <Text style={styles.cardTitle}>계정 및 데이터 관리</Text>
-          <Text style={styles.paragraph}>내 데이터는 내가 통제할 수 있어야 해요.</Text>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>계정 및 데이터 관리</Text>
+          <Text style={[styles.paragraph, { color: colors.textSecondary }]}>내 데이터는 내가 통제할 수 있어야 해요.</Text>
 
           <View style={styles.actionsGrid}>
             <Button
@@ -407,7 +409,7 @@ export default function PrivacySecurityScreen() {
             />
           </View>
 
-          <Text style={styles.noteText}>
+          <Text style={[styles.noteText, { color: colors.textSecondary }]}>
             로그인 상태에서 탈퇴하면 서버(Supabase)에 저장된 계정/기록 등이 함께 삭제됩니다. 로그인하지 않은 경우에는 기기에 저장된 로컬 데이터만 삭제됩니다.
           </Text>
         </Card>

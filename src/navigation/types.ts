@@ -20,6 +20,9 @@ export type RootStackParamList = {
   Privacy: undefined;
   Terms: undefined;
   PrivacyPolicy: undefined;
+  Subscription: undefined;
+  HelpCenter: undefined;
+  UpgradePlan: undefined;
   // Legacy
   Home: undefined;
   FoodResult: { analysis: FoodAnalysis; imageUri: string };

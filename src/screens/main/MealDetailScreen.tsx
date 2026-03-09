@@ -7,6 +7,7 @@ import { COLORS, SPACING, RADIUS } from '../../constants/colors';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
+import { useTheme } from '../../theme/ThemeProvider';
 
 type RouteParams = {
   title: string;
@@ -18,6 +19,7 @@ type RouteParams = {
 export default function MealDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute();
+  const { colors } = useTheme();
   const { title, date, calories, grade } = route.params as RouteParams;
 
   const gradeVariant = ((): 'success' | 'warning' | 'danger' | 'default' => {
@@ -36,36 +38,36 @@ export default function MealDetailScreen() {
   })();
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]} edges={['top', 'left', 'right']}>
+      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} accessibilityRole="button">
-          <AppIcon name="chevron-left" size={26} color={COLORS.text} />
+          <AppIcon name="chevron-left" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>자세히 보기</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>자세히 보기</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <Card style={styles.summaryCard}>
+        <Card style={styles.summaryCard} variant="elevated">
           <View style={styles.summaryTopRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.mealTitle}>{title}</Text>
+              <Text style={[styles.mealTitle, { color: colors.text }]}>{title}</Text>
               <View style={styles.metaRow}>
-                <AppIcon name="access-time" size={12} color={COLORS.textSecondary} />
-                <Text style={styles.metaText}>{date}</Text>
-                <Text style={styles.metaDot}>•</Text>
-                <Text style={styles.metaText}>{calories} kcal</Text>
+                <AppIcon name="access-time" size={12} color={colors.textSecondary} />
+                <Text style={[styles.metaText, { color: colors.textSecondary }]}>{date}</Text>
+                <Text style={[styles.metaDot, { color: colors.textSecondary }]}>•</Text>
+                <Text style={[styles.metaText, { color: colors.textSecondary }]}>{calories} kcal</Text>
               </View>
             </View>
             <Badge variant={gradeVariant} text={grade} style={{ alignSelf: 'flex-start' }} />
           </View>
 
-          <Text style={styles.helperText}>최근 식사 카드에서 선택한 항목의 요약 정보예요.</Text>
+          <Text style={[styles.helperText, { color: colors.textSecondary }]}>최근 식사 카드에서 선택한 항목의 요약 정보예요.</Text>
         </Card>
 
-        <Card style={styles.detailCard}>
-          <Text style={styles.sectionTitle}>분석 요약</Text>
-          <Text style={styles.paragraph}>
+        <Card style={styles.detailCard} variant="elevated">
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>분석 요약</Text>
+          <Text style={[styles.paragraph, { color: colors.textSecondary }] }>
             현재는 최근 식사 예시 데이터로 동작합니다. 실제 분석 기록과 연결하면 촬영 이미지, 영양 성분표, 등급 이유 등을 여기에서 확인할 수 있어요.
           </Text>
         </Card>

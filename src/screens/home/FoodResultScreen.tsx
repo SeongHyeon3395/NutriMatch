@@ -11,6 +11,7 @@ import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/types';
 import { GRADE_LABELS, GRADE_COLORS } from '../../types/user';
+import { useTheme } from '../../theme/ThemeProvider';
 
 type RouteProps = RouteProp<RootStackParamList, 'FoodResult'>;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'FoodResult'>;
@@ -19,6 +20,7 @@ export default function FoodResultScreen() {
   const route = useRoute<RouteProps>();
   const navigation = useNavigation<NavigationProp>();
   const { analysis, imageUri } = route.params;
+  const { colors, isDark } = useTheme();
 
   // 임시: 사용자 분석이 없으면 기본값
   const userAnalysis = analysis.userAnalysis || {
@@ -43,7 +45,7 @@ export default function FoodResultScreen() {
     }[grade] || '👌';
 
     return (
-      <View style={[styles.gradeBadge, { backgroundColor: color }]}>
+      <View style={[styles.gradeBadge, { backgroundColor: color, shadowOpacity: 0, elevation: 0 }]}>
         <Text style={styles.gradeIcon}>{icon}</Text>
         <Text style={styles.gradeLabel}>{label}</Text>
       </View>
@@ -53,22 +55,22 @@ export default function FoodResultScreen() {
   const macros = analysis.macros || {};
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Image source={{ uri: imageUri }} style={styles.image} />
+        <Image source={{ uri: imageUri }} style={[styles.image, { backgroundColor: colors.surfaceMuted }]} />
 
         {renderGradeBadge()}
 
-        <View style={styles.card}>
-          <Text style={styles.dishName}>{analysis.dishName}</Text>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, shadowOpacity: 0, elevation: 0 }]}>
+          <Text style={[styles.dishName, { color: colors.text }]}>{analysis.dishName}</Text>
           {analysis.description && (
-            <Text style={styles.description}>{analysis.description}</Text>
+            <Text style={[styles.description, { color: colors.textSecondary }]}>{analysis.description}</Text>
           )}
           {analysis.categories && analysis.categories.length > 0 && (
             <View style={styles.categories}>
               {analysis.categories.map((cat, idx) => (
-                <View key={idx} style={styles.categoryTag}>
-                  <Text style={styles.categoryText}>{cat}</Text>
+                <View key={idx} style={[styles.categoryTag, { backgroundColor: isDark ? colors.surfaceMuted : '#E0E7FF', borderColor: colors.border }]}>
+                  <Text style={[styles.categoryText, { color: isDark ? colors.text : '#3730A3' }]}>{cat}</Text>
                 </View>
               ))}
             </View>
@@ -76,109 +78,129 @@ export default function FoodResultScreen() {
         </View>
 
         {userAnalysis.reasons && userAnalysis.reasons.length > 0 && (
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>💡 이렇게 나왔어요</Text>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, shadowOpacity: 0, elevation: 0 }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>💡 이렇게 나왔어요</Text>
             {userAnalysis.reasons.map((reason, idx) => (
               <View key={idx} style={styles.listItem}>
-                <Text style={styles.bullet}>•</Text>
-                <Text style={styles.listText}>{reason}</Text>
+                <Text style={[styles.bullet, { color: colors.textSecondary }]}>•</Text>
+                <Text style={[styles.listText, { color: colors.text }]}>{reason}</Text>
               </View>
             ))}
           </View>
         )}
 
         {userAnalysis.warnings && userAnalysis.warnings.length > 0 && (
-          <View style={[styles.card, styles.warningCard]}>
-            <Text style={styles.warningTitle}>⚠️ 조심해요</Text>
+          <View
+            style={[
+              styles.card,
+              styles.warningCard,
+              {
+                backgroundColor: isDark ? 'rgba(245, 158, 11, 0.14)' : '#FEF3C7',
+                borderColor: isDark ? 'rgba(245, 158, 11, 0.35)' : '#F59E0B',
+                shadowOpacity: 0,
+                elevation: 0,
+              },
+            ]}
+          >
+            <Text style={[styles.warningTitle, { color: isDark ? '#FBBF24' : '#D97706' }]}>⚠️ 조심해요</Text>
             {userAnalysis.warnings.map((warning, idx) => (
               <View key={idx} style={styles.listItem}>
-                <Text style={styles.bullet}>•</Text>
-                <Text style={[styles.listText, styles.warningText]}>{warning}</Text>
+                <Text style={[styles.bullet, { color: isDark ? '#FBBF24' : '#6B7280' }]}>•</Text>
+                <Text style={[styles.listText, styles.warningText, { color: isDark ? '#FDE68A' : '#92400E' }]}>{warning}</Text>
               </View>
             ))}
           </View>
         )}
 
         {userAnalysis.alternatives && userAnalysis.alternatives.length > 0 && (
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>🔄 대신 이런 음식은 어때요?</Text>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, shadowOpacity: 0, elevation: 0 }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>🔄 대신 이런 음식은 어때요?</Text>
             {userAnalysis.alternatives.map((alt, idx) => (
               <View key={idx} style={styles.listItem}>
-                <Text style={styles.bullet}>•</Text>
-                <Text style={styles.listText}>{alt}</Text>
+                <Text style={[styles.bullet, { color: colors.textSecondary }]}>•</Text>
+                <Text style={[styles.listText, { color: colors.text }]}>{alt}</Text>
               </View>
             ))}
           </View>
         )}
 
         {userAnalysis.tips && userAnalysis.tips.length > 0 && (
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>💬 이렇게 먹어보세요</Text>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, shadowOpacity: 0, elevation: 0 }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>💬 이렇게 먹어보세요</Text>
             {userAnalysis.tips.map((tip, idx) => (
               <View key={idx} style={styles.listItem}>
-                <Text style={styles.bullet}>•</Text>
-                <Text style={styles.listText}>{tip}</Text>
+                <Text style={[styles.bullet, { color: colors.textSecondary }]}>•</Text>
+                <Text style={[styles.listText, { color: colors.text }]}>{tip}</Text>
               </View>
             ))}
           </View>
         )}
 
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, shadowOpacity: 0, elevation: 0 }]}>
           <View style={styles.nutritionHeader}>
-            <Text style={styles.sectionTitle}>음식 성분</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>음식 성분</Text>
             {analysis.source && (
               <View style={[
                 styles.sourceBadge,
-                analysis.source.includes('DB') ? styles.sourceBadgeDB : styles.sourceBadgeAI
+                analysis.source.includes('DB') ? styles.sourceBadgeDB : styles.sourceBadgeAI,
+                analysis.source.includes('DB')
+                  ? {
+                      backgroundColor: isDark ? 'rgba(96, 165, 250, 0.14)' : '#DBEAFE',
+                      borderColor: isDark ? 'rgba(96, 165, 250, 0.35)' : '#3B82F6',
+                    }
+                  : {
+                      backgroundColor: isDark ? 'rgba(245, 158, 11, 0.14)' : '#FEF3C7',
+                      borderColor: isDark ? 'rgba(245, 158, 11, 0.35)' : '#F59E0B',
+                    }
               ]}>
-                <Text style={styles.sourceBadgeText}>
+                <Text style={[styles.sourceBadgeText, { color: colors.text }]}>
                   {analysis.source.includes('DB') ? '🗄️ DB 정보' : '🤖 AI 추정'}
                 </Text>
               </View>
             )}
           </View>
-          <Text style={styles.nutritionSubHeader}>
+          <Text style={[styles.nutritionSubHeader, { color: colors.textSecondary }]}>
             {analysis.referenceStandard || '1인분 기준'}
           </Text>
           
           <View style={styles.nutritionTable}>
             {macros.calories !== undefined && (
-              <View style={styles.nutritionRow}>
-                <Text style={styles.nutritionLabel}>열량</Text>
-                <Text style={styles.nutritionValue}>{macros.calories} kcal</Text>
+              <View style={[styles.nutritionRow, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.nutritionLabel, { color: colors.textSecondary }]}>열량</Text>
+                <Text style={[styles.nutritionValue, { color: colors.text }]}>{macros.calories} kcal</Text>
               </View>
             )}
             {macros.carbs_g !== undefined && (
-              <View style={styles.nutritionRow}>
-                <Text style={styles.nutritionLabel}>탄수화물</Text>
-                <Text style={styles.nutritionValue}>{macros.carbs_g}g</Text>
+              <View style={[styles.nutritionRow, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.nutritionLabel, { color: colors.textSecondary }]}>탄수화물</Text>
+                <Text style={[styles.nutritionValue, { color: colors.text }]}>{macros.carbs_g}g</Text>
               </View>
             )}
             {macros.protein_g !== undefined && (
-              <View style={styles.nutritionRow}>
-                <Text style={styles.nutritionLabel}>단백질</Text>
-                <Text style={styles.nutritionValue}>{macros.protein_g}g</Text>
+              <View style={[styles.nutritionRow, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.nutritionLabel, { color: colors.textSecondary }]}>단백질</Text>
+                <Text style={[styles.nutritionValue, { color: colors.text }]}>{macros.protein_g}g</Text>
               </View>
             )}
             {macros.fat_g !== undefined && (
-              <View style={styles.nutritionRow}>
-                <Text style={styles.nutritionLabel}>지방</Text>
-                <Text style={styles.nutritionValue}>{macros.fat_g}g</Text>
+              <View style={[styles.nutritionRow, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.nutritionLabel, { color: colors.textSecondary }]}>지방</Text>
+                <Text style={[styles.nutritionValue, { color: colors.text }]}>{macros.fat_g}g</Text>
               </View>
             )}
             {macros.sodium_mg !== undefined && (
-              <View style={styles.nutritionRow}>
-                <Text style={styles.nutritionLabel}>나트륨</Text>
-                <Text style={styles.nutritionValue}>{macros.sodium_mg}mg</Text>
+              <View style={[styles.nutritionRow, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.nutritionLabel, { color: colors.textSecondary }]}>나트륨</Text>
+                <Text style={[styles.nutritionValue, { color: colors.text }]}>{macros.sodium_mg}mg</Text>
               </View>
             )}
           </View>
         </View>
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
         <TouchableOpacity
-          style={[styles.button, styles.buttonPrimary]}
+          style={[styles.button, styles.buttonPrimary, { backgroundColor: colors.primary }]}
           onPress={() => navigation.goBack()}>
           <Text style={styles.buttonPrimaryText}>처음으로 돌아가기</Text>
         </TouchableOpacity>
@@ -219,6 +241,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 20,
     marginBottom: 16,
+    borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -252,6 +275,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 12,
     borderRadius: 12,
+    borderWidth: 1,
   },
   categoryText: { fontSize: 12, color: '#3730A3' },
   sectionTitle: {

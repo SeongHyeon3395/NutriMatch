@@ -3,6 +3,7 @@ import { Linking, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { COLORS } from '../../constants/colors';
+import { useTheme } from '../../theme/ThemeProvider';
 
 type Props = {
   title?: string;
@@ -19,11 +20,12 @@ export function CameraPermissionView({
   onPressPrimary,
   showSettings,
 }: Props) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.root}>
-      <Card style={styles.card}>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.message}>{message}</Text>
+    <View style={[styles.root, { backgroundColor: colors.backgroundGray }]}>
+      <Card style={styles.card} variant="elevated">
+        <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+        <Text style={[styles.message, { color: colors.textSecondary }]}>{message}</Text>
         <View style={styles.actions}>
           <Button title={primaryLabel} onPress={onPressPrimary} />
           {!!showSettings && (

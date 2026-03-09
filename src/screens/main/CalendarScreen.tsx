@@ -3,15 +3,16 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
-import { COLORS, RADIUS } from '../../constants/colors';
+import { COLORS, RADIUS, SPACING } from '../../constants/colors';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { Badge } from '../../components/ui/Badge';
 import { useAppAlert } from '../../components/ui/AppAlert';
-import { pickPhotoFromCamera } from '../../services/imagePicker';
+import { ManualLogEditor } from '../../components/editor/ManualLogEditor';
 import { useUserStore } from '../../store/userStore';
 import type { ManualMealLog } from '../../types/user';
+import { useTheme } from '../../theme/ThemeProvider';
 
 type MealType = ManualMealLog['mealType'];
 
@@ -46,19 +47,6 @@ function monthLabel(d: Date) {
   return `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
 }
 
-function parseNumOrUndefined(s: string): number | undefined {
-  const t = String(s ?? '').trim();
-  if (!t) return undefined;
-  const n = Number(t);
-  if (!Number.isFinite(n)) return undefined;
-  return Math.max(0, n);
-}
-
-function parseNumOrZero(s: string): number {
-  const n = parseNumOrUndefined(s);
-  return typeof n === 'number' ? n : 0;
-}
-
 type MacroTotals = { calories: number; carbs_g: number; protein_g: number; fat_g: number };
 
 function addTotals(a: MacroTotals, b: MacroTotals): MacroTotals {
@@ -74,135 +62,19 @@ function toText(v: number | undefined) {
   return typeof v === 'number' && Number.isFinite(v) ? String(v) : '';
 }
 
-function ManualLogEditor(props: {
-  initial: ManualMealLog;
-  onSave: (updates: Partial<ManualMealLog>) => void | Promise<void>;
-}) {
-  const [mealType, setMealType] = useState<MealType>(props.initial.mealType);
-  const [foodName, setFoodName] = useState(String(props.initial.foodName ?? ''));
-  const [photoUri, setPhotoUri] = useState<string>(String(props.initial.imageUri ?? ''));
-  const [calories, setCalories] = useState(String(props.initial.calories ?? 0));
-  const [carbs, setCarbs] = useState(String(props.initial.carbs_g ?? 0));
-  const [protein, setProtein] = useState(String(props.initial.protein_g ?? 0));
-  const [fat, setFat] = useState(String(props.initial.fat_g ?? 0));
-
-  const capturePhoto = useCallback(async () => {
-    const picked = await pickPhotoFromCamera({ quality: 0.88 });
-    const uri = String(picked?.uri ?? '').trim();
-    if (!uri) return;
-    setPhotoUri(uri);
-  }, []);
-
-  return (
-    <View style={styles.goalEditorRoot}>
-      <Text style={styles.fieldLabel}>식사 종류</Text>
-      <View style={styles.mealTypeRow}>
-        {(Object.keys(MEAL_LABELS) as MealType[]).map(t => (
-          <TouchableOpacity
-            key={t}
-            onPress={() => setMealType(t)}
-            style={[styles.mealChip, mealType === t && styles.mealChipActive]}
-            accessibilityRole="button"
-            accessibilityLabel={`${MEAL_LABELS[t]} 선택`}
-          >
-            <Text style={[styles.mealChipText, mealType === t && styles.mealChipTextActive]}>{MEAL_LABELS[t]}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <Text style={styles.fieldLabel}>음식 이름</Text>
-      <TextInput
-        value={foodName}
-        onChangeText={setFoodName}
-        placeholder="예: 닭가슴살 샐러드"
-        placeholderTextColor={COLORS.textSecondary}
-        style={styles.input}
-      />
-
-      <Text style={styles.fieldLabel}>사진</Text>
-      <View style={styles.photoRow}>
-        <Button
-          variant="outline"
-          title={photoUri ? '사진 다시 찍기' : '사진 찍기'}
-          onPress={capturePhoto}
-          icon={<AppIcon name="photo-camera" size={18} color={COLORS.primary} />}
-        />
-        {photoUri ? (
-          <Image source={{ uri: photoUri }} style={styles.photoThumb} />
-        ) : (
-          <View style={styles.photoThumbPlaceholder} />
-        )}
-      </View>
-
-      <View style={styles.formGrid}>
-        <View style={styles.formField}>
-          <Text style={styles.fieldLabel}>칼로리(kcal)</Text>
-          <TextInput
-            value={calories}
-            onChangeText={setCalories}
-            keyboardType="numeric"
-            placeholder="예: 500"
-            placeholderTextColor={COLORS.textSecondary}
-            style={styles.input}
-          />
-        </View>
-        <View style={styles.formField}>
-          <Text style={styles.fieldLabel}>탄수(g)</Text>
-          <TextInput
-            value={carbs}
-            onChangeText={setCarbs}
-            keyboardType="numeric"
-            placeholder="예: 60"
-            placeholderTextColor={COLORS.textSecondary}
-            style={styles.input}
-          />
-        </View>
-        <View style={styles.formField}>
-          <Text style={styles.fieldLabel}>단백질(g)</Text>
-          <TextInput
-            value={protein}
-            onChangeText={setProtein}
-            keyboardType="numeric"
-            placeholder="예: 30"
-            placeholderTextColor={COLORS.textSecondary}
-            style={styles.input}
-          />
-        </View>
-        <View style={styles.formField}>
-          <Text style={styles.fieldLabel}>지방(g)</Text>
-          <TextInput
-            value={fat}
-            onChangeText={setFat}
-            keyboardType="numeric"
-            placeholder="예: 15"
-            placeholderTextColor={COLORS.textSecondary}
-            style={styles.input}
-          />
-        </View>
-      </View>
-
-      <Button
-        title="적용"
-        onPress={() =>
-          props.onSave({
-            mealType,
-            foodName: foodName.trim() ? foodName.trim() : undefined,
-            imageUri: photoUri.trim() ? photoUri.trim() : undefined,
-            calories: parseNumOrZero(calories),
-            carbs_g: parseNumOrZero(carbs),
-            protein_g: parseNumOrZero(protein),
-            fat_g: parseNumOrZero(fat),
-          })
-        }
-      />
-    </View>
-  );
+function parseNumOrUndefined(s: string): number | undefined {
+  const t = String(s ?? '').trim();
+  if (!t) return undefined;
+  const n = Number(t);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.max(0, n);
 }
 
 function GoalEditor(props: {
   initial: { calories?: number; carbs?: number; protein?: number; fat?: number };
   onSave: (next: { calories?: number; carbs?: number; protein?: number; fat?: number }) => void | Promise<void>;
 }) {
+  const { colors } = useTheme();
   const [calories, setCalories] = useState(toText(props.initial.calories));
   const [carbs, setCarbs] = useState(toText(props.initial.carbs));
   const [protein, setProtein] = useState(toText(props.initial.protein));
@@ -212,47 +84,47 @@ function GoalEditor(props: {
     <View style={styles.goalEditorRoot}>
       <View style={styles.goalEditorGrid}>
         <View style={styles.goalEditorField}>
-          <Text style={styles.fieldLabel}>칼로리(kcal)</Text>
+          <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>칼로리(kcal)</Text>
           <TextInput
             value={calories}
             onChangeText={setCalories}
             keyboardType="numeric"
             placeholder="예: 2000"
-            placeholderTextColor={COLORS.textSecondary}
-            style={styles.input}
+            placeholderTextColor={colors.textSecondary}
+            style={[styles.input, { borderColor: colors.surfaceMuted, backgroundColor: colors.surfaceElevated, color: colors.text }]}
           />
         </View>
         <View style={styles.goalEditorField}>
-          <Text style={styles.fieldLabel}>탄수(g)</Text>
+          <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>탄수(g)</Text>
           <TextInput
             value={carbs}
             onChangeText={setCarbs}
             keyboardType="numeric"
             placeholder="예: 250"
-            placeholderTextColor={COLORS.textSecondary}
-            style={styles.input}
+            placeholderTextColor={colors.textSecondary}
+            style={[styles.input, { borderColor: colors.surfaceMuted, backgroundColor: colors.surfaceElevated, color: colors.text }]}
           />
         </View>
         <View style={styles.goalEditorField}>
-          <Text style={styles.fieldLabel}>단백질(g)</Text>
+          <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>단백질(g)</Text>
           <TextInput
             value={protein}
             onChangeText={setProtein}
             keyboardType="numeric"
             placeholder="예: 120"
-            placeholderTextColor={COLORS.textSecondary}
-            style={styles.input}
+            placeholderTextColor={colors.textSecondary}
+            style={[styles.input, { borderColor: colors.surfaceMuted, backgroundColor: colors.surfaceElevated, color: colors.text }]}
           />
         </View>
         <View style={styles.goalEditorField}>
-          <Text style={styles.fieldLabel}>지방(g)</Text>
+          <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>지방(g)</Text>
           <TextInput
             value={fat}
             onChangeText={setFat}
             keyboardType="numeric"
             placeholder="예: 60"
-            placeholderTextColor={COLORS.textSecondary}
-            style={styles.input}
+            placeholderTextColor={colors.textSecondary}
+            style={[styles.input, { borderColor: colors.surfaceMuted, backgroundColor: colors.surfaceElevated, color: colors.text }]}
           />
         </View>
       </View>
@@ -275,6 +147,7 @@ function GoalEditor(props: {
 export default function CalendarScreen() {
   const navigation = useNavigation<any>();
   const { alert, dismiss } = useAppAlert();
+  const { colors } = useTheme();
 
   const profile = useUserStore(state => state.profile);
   const updateProfile = useUserStore(state => state.updateProfile);
@@ -295,15 +168,7 @@ export default function CalendarScreen() {
   const goalProt = typeof profile?.targetProtein === 'number' ? profile.targetProtein : undefined;
   const goalF = typeof profile?.targetFat === 'number' ? profile.targetFat : undefined;
 
-  const [isAdding, setIsAdding] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [mealType, setMealType] = useState<MealType>('breakfast');
-  const [foodName, setFoodName] = useState('');
-  const [photoUri, setPhotoUri] = useState<string>('');
-  const [calories, setCalories] = useState('');
-  const [carbs, setCarbs] = useState('');
-  const [protein, setProtein] = useState('');
-  const [fat, setFat] = useState('');
 
   useEffect(() => {
     void loadManualMealLogs();
@@ -313,7 +178,6 @@ export default function CalendarScreen() {
     useCallback(() => {
       return () => {
         setIsEditing(false);
-        setIsAdding(false);
         dismiss();
       };
     }, [dismiss])
@@ -467,22 +331,48 @@ export default function CalendarScreen() {
     setActiveMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
   }, []);
 
-  const capturePhoto = useCallback(async () => {
-    const picked = await pickPhotoFromCamera({ quality: 0.88 });
-    const uri = String(picked?.uri ?? '').trim();
-    if (!uri) return;
-    setPhotoUri(uri);
-  }, []);
+  const openAddLog = useCallback(() => {
+    const userId = profile?.id || 'local';
+    const draft: ManualMealLog = {
+      id: 'draft',
+      userId,
+      date: selectedDate,
+      mealType: 'breakfast',
+      foodName: undefined,
+      calories: 0,
+      carbs_g: 0,
+      protein_g: 0,
+      fat_g: 0,
+      imageUri: undefined,
+      timestamp: new Date().toISOString(),
+    };
 
-  const resetAddForm = useCallback(() => {
-    setMealType('breakfast');
-    setFoodName('');
-    setPhotoUri('');
-    setCalories('');
-    setCarbs('');
-    setProtein('');
-    setFat('');
-  }, []);
+    alert({
+      title: '기록 추가',
+      message: selectedDate,
+      content: (
+        <ManualLogEditor
+          initial={draft}
+          submitLabel="추가"
+          onClose={dismiss}
+          onSubmit={async (updates) => {
+            const newLog: ManualMealLog = {
+              ...draft,
+              ...updates,
+              id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+              userId,
+              date: selectedDate,
+              timestamp: new Date().toISOString(),
+            };
+
+            await addManualMealLog(newLog);
+            dismiss();
+          }}
+        />
+      ),
+      actions: [],
+    });
+  }, [addManualMealLog, alert, dismiss, profile?.id, selectedDate]);
 
   const openEditLog = useCallback(
     (log: ManualMealLog) => {
@@ -492,13 +382,15 @@ export default function CalendarScreen() {
         content: (
           <ManualLogEditor
             initial={log}
-            onSave={async (updates) => {
+            submitLabel="저장"
+            onClose={dismiss}
+            onSubmit={async (updates) => {
               await updateManualMealLog(log.id, updates);
               dismiss();
             }}
           />
         ),
-        actions: [{ text: '닫기', variant: 'outline' }],
+        actions: [],
       });
     },
     [alert, dismiss, updateManualMealLog]
@@ -524,27 +416,6 @@ export default function CalendarScreen() {
     [alert, removeManualMealLog]
   );
 
-  const saveManualLog = useCallback(async () => {
-    const userId = profile?.id || 'local';
-    const newLog: ManualMealLog = {
-      id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
-      userId,
-      date: selectedDate,
-      mealType,
-      foodName: foodName.trim() ? foodName.trim() : undefined,
-      calories: parseNumOrZero(calories),
-      carbs_g: parseNumOrZero(carbs),
-      protein_g: parseNumOrZero(protein),
-      fat_g: parseNumOrZero(fat),
-      imageUri: photoUri ? photoUri : undefined,
-      timestamp: new Date().toISOString(),
-    };
-
-    await addManualMealLog(newLog);
-    setIsAdding(false);
-    resetAddForm();
-  }, [addManualMealLog, calories, carbs, fat, foodName, mealType, photoUri, profile?.id, protein, resetAddForm, selectedDate]);
-
   const overCal = typeof goalCal === 'number' && selectedTotals.calories > goalCal;
   const overCarb = typeof goalCarb === 'number' && selectedTotals.carbs_g > goalCarb;
   const overProt = typeof goalProt === 'number' && selectedTotals.protein_g > goalProt;
@@ -553,26 +424,27 @@ export default function CalendarScreen() {
   const hasAnyGoal = [goalCal, goalCarb, goalProt, goalF].some(v => typeof v === 'number');
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.topBar}>
-          <Text style={styles.topTitle}>캘린더</Text>
-        </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]} edges={['top', 'left', 'right']}>
+      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>캘린더</Text>
+      </View>
 
-        <Card style={styles.calendarCard}>
+      <ScrollView contentContainerStyle={styles.content}>
+
+        <Card style={styles.calendarCard} variant="elevated">
           <View style={styles.monthHeader}>
             <TouchableOpacity onPress={goPrevMonth} style={styles.monthNavBtn} accessibilityRole="button" accessibilityLabel="이전 달">
-              <AppIcon name="chevron-left" size={26} color={COLORS.text} />
+              <AppIcon name="chevron-left" size={26} color={colors.text} />
             </TouchableOpacity>
-            <Text style={styles.monthLabel}>{monthLabel(activeMonth)}</Text>
+            <Text style={[styles.monthLabel, { color: colors.text }]}>{monthLabel(activeMonth)}</Text>
             <TouchableOpacity onPress={goNextMonth} style={styles.monthNavBtn} accessibilityRole="button" accessibilityLabel="다음 달">
-              <AppIcon name="chevron-right" size={26} color={COLORS.text} />
+              <AppIcon name="chevron-right" size={26} color={colors.text} />
             </TouchableOpacity>
           </View>
 
           <View style={styles.weekdaysRow}>
             {WEEKDAYS.map(w => (
-              <Text key={w} style={styles.weekdayText}>{w}</Text>
+              <Text key={w} style={[styles.weekdayText, { color: colors.textSecondary }]}>{w}</Text>
             ))}
           </View>
 
@@ -592,15 +464,20 @@ export default function CalendarScreen() {
                 <TouchableOpacity
                   key={cell.key}
                   onPress={() => setSelectedDate(ymd)}
-                  style={[styles.cell, isToday && !isSelected && styles.cellToday, isSelected && styles.cellSelected]}
+                  style={[
+                    styles.cell,
+                    { backgroundColor: colors.surface, borderColor: colors.surfaceMuted },
+                    isToday && !isSelected && [styles.cellToday, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }],
+                    isSelected && [styles.cellSelected, { backgroundColor: colors.surfaceMuted, borderColor: colors.surfaceMuted }],
+                  ]}
                   accessibilityRole="button"
                   accessibilityLabel={`${ymd} 선택`}
                 >
-                  <Text style={[styles.cellDay, isToday && !isSelected && styles.cellDayToday, isSelected && styles.cellDaySelected]}>
+                  <Text style={[styles.cellDay, { color: colors.text }, isToday && !isSelected && { color: colors.text }, isSelected && { color: colors.text }]}>
                     {cell.day}
                   </Text>
                   {hasLogs ? (
-                    <Text style={[styles.cellSub, isSelected && styles.cellSubSelected]} numberOfLines={1}>
+                    <Text style={[styles.cellSub, { color: colors.textSecondary }, isSelected && { color: colors.textSecondary }]} numberOfLines={1}>
                       {Math.round(totals.calories)}kcal
                     </Text>
                   ) : (
@@ -612,33 +489,33 @@ export default function CalendarScreen() {
           </View>
         </Card>
 
-        <Card style={styles.sectionCard}>
+        <Card style={styles.sectionCard} variant="elevated">
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{selectedDate} 합계</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>{selectedDate} 합계</Text>
             <View style={styles.headerButtons}>
               <Button variant="outline" size="sm" title="챗봇에 물어보기" onPress={openChatWithTodaySummary} />
             </View>
           </View>
 
           <View style={styles.totalsGrid}>
-            <Text style={[styles.totalItem, overCal && styles.totalOver]}>칼로리 {Math.round(selectedTotals.calories)} kcal</Text>
-            <Text style={[styles.totalItem, overCarb && styles.totalOver]}>탄수 {Math.round(selectedTotals.carbs_g)} g</Text>
-            <Text style={[styles.totalItem, overProt && styles.totalProteinGood]}>단백질 {Math.round(selectedTotals.protein_g)} g</Text>
-            <Text style={[styles.totalItem, overFat && styles.totalOver]}>지방 {Math.round(selectedTotals.fat_g)} g</Text>
+            <Text style={[styles.totalItem, { color: colors.text }, overCal && styles.totalOver]}>칼로리 {Math.round(selectedTotals.calories)} kcal</Text>
+            <Text style={[styles.totalItem, { color: colors.text }, overCarb && styles.totalOver]}>탄수 {Math.round(selectedTotals.carbs_g)} g</Text>
+            <Text style={[styles.totalItem, { color: colors.text }, overProt && styles.totalProteinGood]}>단백질 {Math.round(selectedTotals.protein_g)} g</Text>
+            <Text style={[styles.totalItem, { color: colors.text }, overFat && styles.totalOver]}>지방 {Math.round(selectedTotals.fat_g)} g</Text>
           </View>
 
-          <View style={styles.goalSummary}>
+          <View style={[styles.goalSummary, { borderColor: colors.surfaceMuted, backgroundColor: colors.surfaceElevated }]}>
             <View style={styles.goalHeaderRow}>
-              <Text style={styles.goalTitle}>목표(제한량)</Text>
+              <Text style={[styles.goalTitle, { color: colors.text }]}>목표(제한량)</Text>
               {hasAnyGoal ? (
                 <TouchableOpacity onPress={openGoalEditor} accessibilityRole="button" accessibilityLabel="목표 수정">
-                  <Text style={styles.goalEditText}>수정</Text>
+                  <Text style={[styles.goalEditText, { color: colors.textSecondary }]}>수정</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
 
             {hasAnyGoal ? (
-              <Text style={styles.goalText}>
+              <Text style={[styles.goalText, { color: colors.textSecondary }]}>
                 {typeof goalCal === 'number' ? `${Math.round(goalCal)}kcal` : '-'} ·
                 탄수 {typeof goalCarb === 'number' ? `${Math.round(goalCarb)}g` : '-'} ·
                 단백질 {typeof goalProt === 'number' ? `${Math.round(goalProt)}g` : '-'} ·
@@ -646,16 +523,16 @@ export default function CalendarScreen() {
               </Text>
             ) : (
               <View style={styles.goalEmptyRow}>
-                <Text style={styles.goalEmptyText}>목표를 설정해보세요</Text>
+                <Text style={[styles.goalEmptyText, { color: colors.textSecondary }]}>목표를 설정해보세요</Text>
                 <Button size="sm" title="목표 설정" onPress={openGoalEditor} />
               </View>
             )}
           </View>
         </Card>
 
-        <Card style={styles.sectionCard}>
+        <Card style={styles.sectionCard} variant="elevated">
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>기록</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>기록</Text>
             <View style={styles.headerButtons}>
               <Button
                 variant="outline"
@@ -663,133 +540,33 @@ export default function CalendarScreen() {
                 title={isEditing ? '완료' : '편집'}
                 onPress={() => setIsEditing(v => !v)}
               />
-              <Button
-                variant={isAdding ? 'outline' : 'primary'}
-                size="sm"
-                title={isAdding ? '닫기' : '기록 추가'}
-                onPress={() => {
-                  setIsAdding(v => !v);
-                  if (!isAdding) resetAddForm();
-                }}
-              />
+              <Button variant="primary" size="sm" title="기록 추가" onPress={openAddLog} />
             </View>
           </View>
 
-          {isAdding ? (
-            <View style={styles.addBox}>
-              <Text style={styles.fieldLabel}>식사 종류</Text>
-              <View style={styles.mealTypeRow}>
-                {(Object.keys(MEAL_LABELS) as MealType[]).map(t => (
-                  <TouchableOpacity
-                    key={t}
-                    onPress={() => setMealType(t)}
-                    style={[styles.mealChip, mealType === t && styles.mealChipActive]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${MEAL_LABELS[t]} 선택`}
-                  >
-                    <Text style={[styles.mealChipText, mealType === t && styles.mealChipTextActive]}>{MEAL_LABELS[t]}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={styles.fieldLabel}>음식 이름</Text>
-              <TextInput
-                value={foodName}
-                onChangeText={setFoodName}
-                placeholder="예: 닭가슴살 샐러드"
-                placeholderTextColor={COLORS.textSecondary}
-                style={styles.input}
-              />
-
-              <Text style={styles.fieldLabel}>사진</Text>
-              <View style={styles.photoRow}>
-                <Button
-                  variant="outline"
-                  title="사진 찍기"
-                  onPress={capturePhoto}
-                  icon={<AppIcon name="photo-camera" size={18} color={COLORS.primary} />}
-                />
-                {photoUri ? (
-                  <Image source={{ uri: photoUri }} style={styles.photoThumb} />
-                ) : (
-                  <View style={styles.photoThumbPlaceholder} />
-                )}
-              </View>
-
-              <View style={styles.formGrid}>
-                <View style={styles.formField}>
-                  <Text style={styles.fieldLabel}>칼로리(kcal)</Text>
-                  <TextInput
-                    value={calories}
-                    onChangeText={setCalories}
-                    keyboardType="numeric"
-                    placeholder="예: 500"
-                    placeholderTextColor={COLORS.textSecondary}
-                    style={styles.input}
-                  />
-                </View>
-                <View style={styles.formField}>
-                  <Text style={styles.fieldLabel}>탄수(g)</Text>
-                  <TextInput
-                    value={carbs}
-                    onChangeText={setCarbs}
-                    keyboardType="numeric"
-                    placeholder="예: 60"
-                    placeholderTextColor={COLORS.textSecondary}
-                    style={styles.input}
-                  />
-                </View>
-                <View style={styles.formField}>
-                  <Text style={styles.fieldLabel}>단백질(g)</Text>
-                  <TextInput
-                    value={protein}
-                    onChangeText={setProtein}
-                    keyboardType="numeric"
-                    placeholder="예: 30"
-                    placeholderTextColor={COLORS.textSecondary}
-                    style={styles.input}
-                  />
-                </View>
-                <View style={styles.formField}>
-                  <Text style={styles.fieldLabel}>지방(g)</Text>
-                  <TextInput
-                    value={fat}
-                    onChangeText={setFat}
-                    keyboardType="numeric"
-                    placeholder="예: 15"
-                    placeholderTextColor={COLORS.textSecondary}
-                    style={styles.input}
-                  />
-                </View>
-              </View>
-
-              <Button title="저장" onPress={saveManualLog} />
-            </View>
-          ) : null}
-
           {selectedLogs.length === 0 ? (
-            <View style={styles.emptyBox}>
-              <Text style={styles.emptyTitle}>아직 기록이 없어요</Text>
-              <Text style={styles.emptyDesc}>"기록 추가"를 눌러 오늘 먹은 것을 저장해보세요.</Text>
+            <View style={[styles.emptyBox, { borderColor: colors.surfaceMuted, backgroundColor: colors.surfaceElevated }] }>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>아직 기록이 없어요</Text>
+              <Text style={[styles.emptyDesc, { color: colors.textSecondary }]}>"기록 추가"를 눌러 오늘 먹은 것을 저장해보세요.</Text>
             </View>
           ) : (
             <View style={styles.listBox}>
               {selectedLogs.map(log => (
-                <View key={log.id} style={styles.logRow}>
+                <View key={log.id} style={[styles.logRow, { borderColor: colors.surfaceMuted, backgroundColor: colors.surfaceElevated }]}>
                   <View style={styles.logLeft}>
                     {log.imageUri ? (
                       <Image source={{ uri: log.imageUri }} style={styles.logThumb} />
                     ) : (
-                      <View style={[styles.logThumb, styles.logThumbFallback]}>
-                        <AppIcon name="image" size={18} color={COLORS.textSecondary} />
+                      <View style={[styles.logThumb, styles.logThumbFallback, { borderColor: colors.surfaceMuted, backgroundColor: colors.surface }]}>
+                        <AppIcon name="image" size={18} color={colors.textSecondary} />
                       </View>
                     )}
                     <View style={styles.logTextBox}>
-                      <Text style={styles.logTitle}>
+                      <Text style={[styles.logTitle, { color: colors.text }]}>
                         {MEAL_LABELS[log.mealType]}
                         {log.foodName ? ` · ${log.foodName}` : ''}
                       </Text>
-                      <Text style={styles.logSub} numberOfLines={1}>
+                      <Text style={[styles.logSub, { color: colors.textSecondary }]} numberOfLines={1}>
                         {Math.round(log.calories)}kcal · 탄수 {Math.round(log.carbs_g)}g · 단백질 {Math.round(log.protein_g)}g · 지방 {Math.round(log.fat_g)}g
                       </Text>
                     </View>
@@ -802,14 +579,14 @@ export default function CalendarScreen() {
                         accessibilityRole="button"
                         accessibilityLabel="기록 수정"
                       >
-                        <Text style={styles.logActionEdit}>수정</Text>
+                        <Text style={[styles.logActionEdit, { color: colors.textSecondary }]}>수정</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={() => confirmDeleteLog(log)}
                         accessibilityRole="button"
                         accessibilityLabel="기록 삭제"
                       >
-                        <Text style={styles.logActionDelete}>삭제</Text>
+                        <Text style={[styles.logActionDelete, { color: colors.danger }]}>삭제</Text>
                       </TouchableOpacity>
                     </View>
                   ) : null}
@@ -828,24 +605,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.backgroundGray,
   },
-  content: {
-    padding: 16,
-    paddingBottom: 28,
-    gap: 12,
-  },
-  topBar: {
-    flexDirection: 'row',
+  header: {
+    backgroundColor: COLORS.background,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
     alignItems: 'center',
-    paddingHorizontal: 4,
-    paddingVertical: 4,
   },
-  topTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: COLORS.text,
+  headerTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
+  content: {
+    padding: SPACING.lg,
+    paddingBottom: SPACING.xl,
+    gap: SPACING.md,
   },
   calendarCard: {
-    padding: 14,
+    padding: SPACING.md,
   },
   monthHeader: {
     flexDirection: 'row',
@@ -858,7 +633,7 @@ const styles = StyleSheet.create({
   },
   monthLabel: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.text,
   },
   weekdaysRow: {
@@ -882,6 +657,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     alignItems: 'center',
     borderRadius: RADIUS.sm,
+    borderWidth: 1,
   },
   cellBlank: {
     opacity: 0,
@@ -920,7 +696,7 @@ const styles = StyleSheet.create({
   },
 
   sectionCard: {
-    padding: 14,
+    padding: SPACING.md,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -1092,7 +868,10 @@ const styles = StyleSheet.create({
   },
 
   emptyBox: {
+    borderWidth: 1,
     paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: RADIUS.md,
     gap: 6,
   },
   emptyTitle: {

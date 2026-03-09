@@ -1,33 +1,70 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, StatusBar, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions } from 'react-native';
+import { Modal, StatusBar, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions, Image, ScrollView, LayoutChangeEvent, NativeSyntheticEvent, NativeScrollEvent, PermissionsAndroid, Platform } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Defs, Mask, Rect } from 'react-native-svg';
+import { useNetInfo } from '@react-native-community/netinfo';
 import { COLORS, SPACING, RADIUS } from '../../constants/colors';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { Badge } from '../../components/ui/Badge';
 import { useAppAlert } from '../../components/ui/AppAlert';
-import { MONTHLY_SCAN_LIMIT } from '../../config';
-import { getMonthlyScanCountRemote, getSessionUserId } from '../../services/userData';
+import { getMonthlyScanCountRemote, getSessionUserId, listFoodLogsRemote } from '../../services/userData';
 import { pickPhotoFromCamera, pickPhotoFromLibrary } from '../../services/imagePicker';
+import { useUserStore } from '../../store/userStore';
+import { getPlanLimits } from '../../services/plans';
+import { useTheme } from '../../theme/ThemeProvider';
 
 export default function ScanScreen() {
   const navigation = useNavigation();
   const { alert } = useAppAlert();
+  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
-  const scanButtonAnchorRef = useRef<View | null>(null);
+  const net = useNetInfo();
+  const isOffline = net.isConnected === false || net.isInternetReachable === false;
+  const isOnline = !isOffline;
+
+  const [didScroll, setDidScroll] = useState(false);
+  const [scrollViewportHeight, setScrollViewportHeight] = useState(0);
+  const [scrollContentHeight, setScrollContentHeight] = useState(0);
+
+  const foodLogs = useUserStore(state => state.foodLogs);
+  const profile = useUserStore(state => state.profile);
+  const loadFoodLogs = useUserStore(state => state.loadFoodLogs);
+  const setFoodLogs = useUserStore(state => state.setFoodLogs);
+  const planLimits = getPlanLimits(profile?.plan_id);
+  const monthlyScanLimit = planLimits.monthlyScanLimit;
+  const recentLogs = useMemo(() => {
+    const arr = Array.isArray(foodLogs) ? foodLogs : [];
+
+    const safeTime = (value: unknown) => {
+      const iso = typeof value === 'string' ? value : '';
+      const ms = Date.parse(iso);
+      return Number.isFinite(ms) ? ms : 0;
+    };
+
+    return [...arr]
+      .sort((a, b) => safeTime(b?.timestamp) - safeTime(a?.timestamp))
+      .slice(0, 2);
+  }, [foodLogs]);
+
+  const [monthlyUsed, setMonthlyUsed] = useState<number | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+
+  const scanButtonFixedRef = useRef<View | null>(null);
   const [scanButtonRect, setScanButtonRect] = useState<null | { x: number; y: number; width: number; height: number }>(null);
 
   const [tutorialKeys, setTutorialKeys] = useState(() => ({
     seen: '@nutrimatch_scan_tutorial_seen',
+    pending: '@nutrimatch_scan_tutorial_pending',
     phase: '@nutrimatch_scan_tutorial_phase',
   }));
   const baseTutorialSeenKey = useMemo(() => '@nutrimatch_scan_tutorial_seen', []);
+  const baseTutorialPendingKey = useMemo(() => '@nutrimatch_scan_tutorial_pending', []);
   const baseTutorialPhaseKey = useMemo(() => '@nutrimatch_scan_tutorial_phase', []);
   const [showTutorial, setShowTutorial] = useState(false);
 
@@ -37,10 +74,10 @@ export default function ScanScreen() {
 
     try {
       const used = await getMonthlyScanCountRemote();
-      if (typeof used === 'number' && used >= MONTHLY_SCAN_LIMIT) {
+      if (typeof used === 'number' && used >= monthlyScanLimit) {
         alert({
           title: '스캔 기회 소진',
-          message: `이번 달 스캔 기회를 모두 사용했어요. (${MONTHLY_SCAN_LIMIT}회/월)`,
+          message: `이번 달 스캔 기회를 모두 사용했어요. (${monthlyScanLimit}회/월)`,
         });
         return false;
       }
@@ -50,6 +87,38 @@ export default function ScanScreen() {
     return true;
   };
 
+  const refreshMonthlyCount = useCallback(async () => {
+    const userId = await getSessionUserId().catch(() => null);
+    setIsLoggedIn(Boolean(userId));
+    if (!userId) {
+      setMonthlyUsed(null);
+      return;
+    }
+    try {
+      const used = await getMonthlyScanCountRemote();
+      if (typeof used === 'number') setMonthlyUsed(used);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void (async () => {
+        await refreshMonthlyCount();
+        await loadFoodLogs();
+
+        const userId = await getSessionUserId().catch(() => null);
+        if (!userId) return;
+
+        const remote = await listFoodLogsRemote(50).catch(() => null);
+        if (Array.isArray(remote)) {
+          await setFoodLogs(remote);
+        }
+      })();
+    }, [refreshMonthlyCount, loadFoodLogs, setFoodLogs])
+  );
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -58,9 +127,10 @@ export default function ScanScreen() {
       setTutorialKeys(prev => {
         const next = {
           seen: `@nutrimatch_scan_tutorial_seen:${userId}`,
+          pending: `@nutrimatch_scan_tutorial_pending:${userId}`,
           phase: `@nutrimatch_scan_tutorial_phase:${userId}`,
         };
-        if (prev.seen === next.seen && prev.phase === next.phase) return prev;
+        if (prev.seen === next.seen && prev.pending === next.pending && prev.phase === next.phase) return prev;
         return next;
       });
     })();
@@ -73,20 +143,37 @@ export default function ScanScreen() {
     let mounted = true;
     (async () => {
       try {
-        const seen = await AsyncStorage.getItem(tutorialKeys.seen);
-        if (mounted) setShowTutorial(seen !== '1');
+        const [seen, pending, phase] = await Promise.all([
+          AsyncStorage.getItem(tutorialKeys.seen),
+          AsyncStorage.getItem(tutorialKeys.pending),
+          AsyncStorage.getItem(tutorialKeys.phase),
+        ]);
+
+        if (!mounted) return;
+
+        if (seen === '1') {
+          setShowTutorial(false);
+          return;
+        }
+
+        if (phase === 'verify') {
+          setShowTutorial(false);
+          return;
+        }
+
+        setShowTutorial(pending === '1');
       } catch {
-        if (mounted) setShowTutorial(true);
+        if (mounted) setShowTutorial(false);
       }
     })();
     return () => {
       mounted = false;
     };
-  }, [tutorialKeys.seen]);
+  }, [tutorialKeys.pending, tutorialKeys.phase, tutorialKeys.seen]);
 
   const measureScanButton = () => {
     // measureInWindow gives absolute coordinates for overlay alignment
-    scanButtonAnchorRef.current?.measureInWindow((x, y, width, height) => {
+    scanButtonFixedRef.current?.measureInWindow((x, y, width, height) => {
       if (width > 0 && height > 0) {
         setScanButtonRect(prev => {
           if (prev && prev.x === x && prev.y === y && prev.width === width && prev.height === height) return prev;
@@ -96,27 +183,88 @@ export default function ScanScreen() {
     });
   };
 
+  useEffect(() => {
+    if (!showTutorial) return;
+    setTimeout(measureScanButton, 0);
+  }, [showTutorial]);
+
   const finalizeTutorial = async () => {
     setShowTutorial(false);
     try {
       const userId = await getSessionUserId().catch(() => null);
       const scopedSeenKey = userId ? `@nutrimatch_scan_tutorial_seen:${userId}` : null;
+      const scopedPendingKey = userId ? `@nutrimatch_scan_tutorial_pending:${userId}` : null;
       const scopedPhaseKey = userId ? `@nutrimatch_scan_tutorial_phase:${userId}` : null;
 
       // 계정 키 + 레거시(base) 키를 동시에 기록해서, "아주 빠르게 건너뛰기"를 눌러도
       // 이후(촬영/분석 포함) 튜토리얼이 다시 뜨지 않게 합니다.
       await AsyncStorage.setItem(baseTutorialSeenKey, '1');
+      await AsyncStorage.removeItem(baseTutorialPendingKey);
       await AsyncStorage.removeItem(baseTutorialPhaseKey);
       if (scopedSeenKey) await AsyncStorage.setItem(scopedSeenKey, '1');
+      if (scopedPendingKey) await AsyncStorage.removeItem(scopedPendingKey);
       if (scopedPhaseKey) await AsyncStorage.removeItem(scopedPhaseKey);
 
       // 화면 상태에서 쓰는 현재 키도 함께 정리
       await AsyncStorage.setItem(tutorialKeys.seen, '1');
+      await AsyncStorage.removeItem(tutorialKeys.pending);
       await AsyncStorage.removeItem(tutorialKeys.phase);
     } catch {
       // ignore
     }
   };
+
+  const ensureCameraPermission = useCallback(async () => {
+    if (Platform.OS !== 'android') return true;
+
+    try {
+      const hasPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
+      if (hasPermission) return true;
+
+      const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
+      if (granted === PermissionsAndroid.RESULTS.GRANTED) return true;
+
+      alert({
+        title: '카메라 권한 필요',
+        message: '음식 사진을 촬영하려면 카메라 권한을 먼저 허용해주세요.',
+      });
+      return false;
+    } catch {
+      alert({
+        title: '카메라 권한 확인 실패',
+        message: '카메라 권한 상태를 확인하지 못했어요. 다시 시도해주세요.',
+      });
+      return false;
+    }
+  }, [alert]);
+
+  const navigateToCamera = useCallback(() => {
+    try {
+      const nav: any = navigation as any;
+      const rootNav = nav?.getParent?.() ?? nav;
+      rootNav.navigate('Camera');
+      return true;
+    } catch (error: any) {
+      console.error('Camera Error:', error);
+      alert({ title: '오류', message: error?.message || '카메라를 실행하는 중 문제가 발생했습니다.' });
+      return false;
+    }
+  }, [alert, navigation]);
+
+  const ensureCameraLaunchReady = useCallback(async () => {
+    if (!isOnline) {
+      alert({
+        title: '인터넷 연결 필요',
+        message: '현재 오프라인 상태라 음식 분석을 할 수 없어요.\n인터넷 연결 후 다시 시도해주세요.',
+      });
+      return false;
+    }
+
+    const ok = await ensureScanQuotaOrAlert();
+    if (!ok) return false;
+
+    return ensureCameraPermission();
+  }, [alert, ensureCameraPermission, isOnline]);
 
   const goToVerifyTutorialPhase = async () => {
     // Hide scan overlay but continue tutorial on Verify screen.
@@ -150,28 +298,42 @@ export default function ScanScreen() {
     });
   };
 
-  const handleScan = useCallback(async () => {
-    const ok = await ensureScanQuotaOrAlert();
-    if (!ok) return;
+  const formatTime = (iso: string) => {
+    const ms = Date.parse(iso);
+    if (!Number.isFinite(ms)) return '';
+    const d = new Date(ms);
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
 
-    try {
-      const nav: any = navigation as any;
-      const rootNav = nav?.getParent?.() ?? nav;
-      rootNav.navigate('Camera');
-    } catch (error: any) {
-      console.error('Camera Error:', error);
-      alert({ title: '오류', message: error?.message || '카메라를 실행하는 중 문제가 발생했습니다.' });
-    }
-  }, [alert, navigation]);
+  const showScrollHint = !didScroll && scrollContentHeight > scrollViewportHeight + 24;
+
+  const handleScan = useCallback(async () => {
+    const ready = await ensureCameraLaunchReady();
+    if (!ready) return;
+
+    navigateToCamera();
+  }, [ensureCameraLaunchReady, navigateToCamera]);
 
   const handleScanFromTutorial = useCallback(async () => {
+    const ready = await ensureCameraLaunchReady();
+    if (!ready) return;
+
     if (showTutorial) {
       await goToVerifyTutorialPhase();
     }
-    await handleScan();
-  }, [showTutorial, handleScan]);
+
+    navigateToCamera();
+  }, [ensureCameraLaunchReady, goToVerifyTutorialPhase, navigateToCamera, showTutorial]);
 
   const handleGallery = useCallback(async () => {
+    if (!isOnline) {
+      alert({
+        title: '인터넷 연결 필요',
+        message: '현재 오프라인 상태라 음식 분석을 할 수 없어요.\n인터넷 연결 후 다시 시도해주세요.',
+      });
+      return;
+    }
+
     const ok = await ensureScanQuotaOrAlert();
     if (!ok) return;
 
@@ -189,72 +351,165 @@ export default function ScanScreen() {
   }, [alert, navigation]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>음식 분석</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
+      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>음식 분석</Text>
       </View>
 
+      {!isOnline ? (
+        <View style={[styles.offlineBanner, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+          <Text style={[styles.offlineBannerText, { color: colors.textSecondary }]}>
+            오프라인 상태예요. 음식 분석은 인터넷 연결 후 사용 가능합니다.
+          </Text>
+        </View>
+      ) : null}
+
       <View style={styles.content}>
-        <View style={styles.topContent}>
-          <Card style={styles.scannerCard}>
-            <View style={styles.scannerHeader}>
-              <View style={styles.iconContainer}>
-                <AppIcon name="manage-search" color="#FFFFFF" size={24} />
+        <ScrollView
+          contentContainerStyle={styles.scrollInner}
+          style={{ flex: 1 }}
+          onLayout={(e: LayoutChangeEvent) => setScrollViewportHeight(e.nativeEvent.layout.height)}
+          onContentSizeChange={(_, h) => setScrollContentHeight(h)}
+          onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+            if (e.nativeEvent.contentOffset.y > 8 && !didScroll) setDidScroll(true);
+          }}
+          scrollEventThrottle={16}
+        >
+          <View style={styles.topContent}>
+            <Card style={isDark ? { ...styles.scannerCard, backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted } : styles.scannerCard} variant={isDark ? 'elevated' : 'default'}>
+              <View style={styles.scannerHeader}>
+                <View style={[styles.iconContainer, { backgroundColor: colors.primary }]}>
+                  <AppIcon name="manage-search" color="#FFFFFF" size={24} />
+                </View>
+                <View style={styles.scannerTextContainer}>
+                  <Text style={[styles.scannerTitle, { color: colors.text }]}>스마트 스캐너</Text>
+                  <Text style={[styles.scannerDesc, { color: colors.textSecondary }]}>음식/성분표 사진을 찍으면 AI가 정리해드려요.</Text>
+                </View>
               </View>
-              <View style={styles.scannerTextContainer}>
-                <Text style={styles.scannerTitle}>스마트 스캐너</Text>
-                <Text style={styles.scannerDesc}>
-                  음식 사진이나 포장지의 영양성분표/원재료명을 찍어주시면,
-                  AI가 빠르게 읽고 정리해드려요.
-                </Text>
+            </Card>
+
+            {showScrollHint ? (
+              <View style={styles.scrollHintRow}>
+                <Text style={[styles.scrollHintText, { color: colors.textGray }]}>아래로 스크롤해 더 보기</Text>
+                <AppIcon name="expand-more" size={18} color={colors.textGray} />
               </View>
-            </View>
-          </Card>
+            ) : null}
 
-          <Card style={styles.infoCard}>
-            <View style={styles.cardTitleRow}>
-              <Text style={styles.cardTitle}>무엇을 찍으면 되나요?</Text>
-              <TouchableOpacity onPress={handleTips} style={styles.tipButton}>
-                <AppIcon name="lightbulb" color="#FFD700" size={20} />
-                <Text style={styles.tipText}>Tip</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.tagRow}>
-              <Badge variant="outline" text="밝은 조명" />
-              <Badge variant="outline" text="선명한 초점" />
-              <Badge variant="outline" text="전체가 보이게" />
-            </View>
-            <View style={styles.quickList}>
-              <Text style={styles.quickItem}>• 음식 사진 (접시 전체가 나오게)</Text>
-              <Text style={styles.quickItem}>• 영양성분표 / 원재료명 (글자 선명하게)</Text>
-              <Text style={styles.quickItem}>• 결과는 사진 기반 추정이므로 참고용이에요</Text>
-            </View>
-          </Card>
+            <Card style={styles.infoCard} variant="elevated">
+              <View style={styles.cardTitleRow}>
+                <Text style={[styles.cardTitle, { color: colors.text }]}>무엇을 찍으면 되나요?</Text>
+                <TouchableOpacity onPress={handleTips} style={[styles.tipButton, { backgroundColor: colors.warningSoft, borderColor: colors.yellow200 }]}>
+                  <AppIcon name="lightbulb" color="#FFD700" size={20} />
+                  <Text style={[styles.tipText, { color: colors.warningDark }]}>Tip</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.tagRow}>
+                <Badge variant="outline" text="밝은 조명" />
+                <Badge variant="outline" text="선명한 초점" />
+                <Badge variant="outline" text="전체가 보이게" />
+              </View>
+              <View style={styles.quickList}>
+                <Text style={[styles.quickItem, { color: colors.textSecondary }]}>• 음식 사진(전체가 보이게)</Text>
+                <Text style={[styles.quickItem, { color: colors.textSecondary }]}>• 영양성분표/원재료명(글자 선명하게)</Text>
+              </View>
+            </Card>
 
-        </View>
+            <Card style={styles.infoCard} variant="elevated">
+              <View ref={scanButtonFixedRef} onLayout={measureScanButton}>
+                <Button
+                  title="사진 촬영하기"
+                  onPress={handleScanFromTutorial}
+                  style={styles.scanButton}
+                  icon={<AppIcon name="photo-camera" color={isDark ? colors.text : '#FFFFFF'} size={20} />}
+                />
+              </View>
 
-        <View style={styles.bottomActions}>
-          <View ref={scanButtonAnchorRef} onLayout={measureScanButton}>
-            <Button
-              title="사진 촬영하기"
-              onPress={handleScanFromTutorial}
-              style={styles.scanButton}
-              icon={<AppIcon name="photo-camera" color="#FFFFFF" size={20} />}
-            />
+              <View style={{ height: 12 }} />
+
+              <Button
+                title="라이브러리에서 가져오기"
+                onPress={handleGallery}
+                variant="outline"
+                style={styles.scanButton}
+                icon={<AppIcon name="photo-library" color={isDark ? colors.text : colors.primary} size={20} />}
+              />
+            </Card>
+
+            {recentLogs.length > 0 ? (
+              <Card style={{ ...styles.infoCard, ...styles.recentCardWide }} variant="elevated">
+                <View style={styles.cardTitleRow}>
+                  <Text style={[styles.cardTitle, { color: colors.text }]}>최근 기록</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const nav: any = navigation as any;
+                      const rootNav = nav?.getParent?.() ?? nav;
+                      rootNav.navigate('History');
+                    }}
+                    style={styles.tipButton}
+                  >
+                    <Text style={[styles.tipText, { color: colors.warningDark }]}>전체보기</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.recentList}>
+                  {recentLogs.map((log) => {
+                    const dish = String(log?.analysis?.dishName ?? '').trim() || '기록';
+                    const imageUri = String(log?.imageUri ?? '').trim();
+                    const canShowRemoteImage = Boolean(imageUri) && !(isOffline && /^https?:\/\//i.test(imageUri));
+
+                    return (
+                      <TouchableOpacity
+                        key={log.id}
+                        style={[styles.recentRow, { backgroundColor: colors.surfaceElevated, borderColor: colors.surfaceMuted }]}
+                        onPress={() => {
+                          const nav: any = navigation as any;
+                          const rootNav = nav?.getParent?.() ?? nav;
+                          rootNav.navigate('Result', { analysis: log.analysis, imageUri: log.imageUri, readOnly: true });
+                        }}
+                      >
+                        {canShowRemoteImage ? (
+                          <Image source={{ uri: imageUri }} style={styles.recentThumb} />
+                        ) : (
+                          <View style={[styles.recentThumb, styles.recentThumbOffline, { borderColor: colors.border, backgroundColor: colors.background }]}>
+                            <Text style={[styles.recentThumbOfflineText, { color: colors.textSecondary }]}>
+                              {isOffline ? '오프라인' : '이미지 없음'}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={styles.recentTextCol}>
+                          <Text style={[styles.recentTitle, { color: colors.text }]} numberOfLines={1}>
+                            {dish}
+                          </Text>
+                          <Text style={[styles.recentSub, { color: colors.textGray }]} numberOfLines={1}>
+                            {formatTime(log.timestamp)}
+                          </Text>
+                        </View>
+                        <AppIcon name="chevron-right" size={20} color={colors.textGray} />
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </Card>
+            ) : null}
+
+            <Card style={styles.infoCard} variant="elevated">
+              <View style={styles.cardTitleRow}>
+                <Text style={[styles.cardTitle, { color: colors.text }]}>이번 달 스캔</Text>
+              </View>
+              {isLoggedIn ? (
+                <View style={styles.quotaRow}>
+                  <Text style={[styles.quotaText, { color: colors.text }]}>
+                    남은 횟수: {Math.max(0, monthlyScanLimit - (monthlyUsed ?? 0))}회 / {monthlyScanLimit}회
+                  </Text>
+                  <Text style={[styles.quotaSubText, { color: colors.textGray }]}>월 단위로 초기화돼요.</Text>
+                </View>
+              ) : (
+                <Text style={[styles.quickItem, { color: colors.textSecondary }]}>로그인하면 이번 달 남은 스캔 횟수가 표시돼요.</Text>
+              )}
+            </Card>
           </View>
-
-          <View style={styles.secondaryActions}>
-            <View style={{ height: 12 }} />
-            <Button
-              title="사진 선택하기"
-              onPress={handleGallery}
-              variant="outline"
-              style={styles.scanButton}
-              icon={<AppIcon name="photo-library" color={COLORS.primary} size={20} />}
-            />
-
-          </View>
-        </View>
+        </ScrollView>
       </View>
 
       <Modal transparent visible={showTutorial} animationType="fade">
@@ -369,40 +624,69 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.backgroundGray },
   header: {
     backgroundColor: COLORS.background,
-    padding: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
     alignItems: 'center',
   },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
+  offlineBanner: {
+    backgroundColor: COLORS.background,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 10,
+  },
+  offlineBannerText: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   content: {
     flex: 1,
-    paddingHorizontal: SPACING.md,
-    paddingTop: SPACING.md,
-    paddingBottom: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.lg,
+    paddingBottom: SPACING.md,
+  },
+  scrollInner: {
+    paddingBottom: 16,
   },
   topContent: { gap: SPACING.md },
-  bottomActions: { marginTop: 'auto' },
-  secondaryActions: {},
+
+  scrollHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  scrollHintText: {
+    fontSize: 12,
+    color: COLORS.textGray,
+    fontWeight: '600',
+  },
   
   // Scanner Card
   scannerCard: {
-    padding: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
     backgroundColor: COLORS.blue50,
     borderColor: COLORS.blue200,
   },
-  scannerHeader: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.md },
+  scannerHeader: { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.xs },
   iconContainer: {
-    width: 48,
-    height: 48,
+    width: 42,
+    height: 42,
     borderRadius: RADIUS.sm,
     backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   scannerTextContainer: { flex: 1 },
-  scannerTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
-  scannerDesc: { fontSize: 14, color: COLORS.text, lineHeight: 20 },
+  scannerTitle: { fontSize: 17, fontWeight: '800', color: COLORS.text, marginBottom: 4 },
+  scannerDesc: { fontSize: 13, color: COLORS.textSecondary, lineHeight: 18 },
   scanButton: { width: '100%' },
 
   tutorialModalRoot: {
@@ -473,14 +757,15 @@ const styles = StyleSheet.create({
   },
 
   // Info Card
-  infoCard: { padding: SPACING.md },
+  infoCard: { padding: SPACING.lg },
+  recentCardWide: { marginHorizontal: -8 },
   cardTitleRow: { 
     flexDirection: 'row', 
     alignItems: 'center', 
     justifyContent: 'space-between',
     marginBottom: SPACING.sm,
   },
-  cardTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text },
+  cardTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text },
   tipButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -488,16 +773,48 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 8,
     borderRadius: RADIUS.full,
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    backgroundColor: COLORS.warningSoft,
     borderWidth: 1,
-    borderColor: '#FFD700',
+    borderColor: COLORS.yellow200,
   },
   tipText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#FFD700',
+    fontWeight: '700',
+    color: COLORS.warningDark,
   },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: SPACING.sm },
   quickList: { gap: 4 },
-  quickItem: { fontSize: 14, color: COLORS.textGray, lineHeight: 20 },
+  quickItem: { fontSize: 14, color: COLORS.textSecondary, lineHeight: 20 },
+
+  quotaRow: { marginTop: 6 },
+  quotaText: { fontSize: 15, fontWeight: '800', color: COLORS.text },
+  quotaSubText: { marginTop: 4, fontSize: 12, color: COLORS.textGray },
+
+  recentList: { gap: 10 },
+  recentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.backgroundGray,
+  },
+  recentThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: COLORS.border },
+  recentThumbOffline: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  recentThumbOfflineText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.textSecondary,
+  },
+  recentTextCol: { flex: 1, marginLeft: 12 },
+  recentTitle: { fontSize: 14, fontWeight: '800', color: COLORS.text },
+  recentSub: { marginTop: 2, fontSize: 12, color: COLORS.textGray },
 });

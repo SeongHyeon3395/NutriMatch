@@ -12,6 +12,7 @@ import { useUserStore } from '../../store/userStore';
 import { BODY_GOALS, HEALTH_DIETS, LIFESTYLE_DIETS } from '../../constants';
 import type { BodyGoalType, HealthDietType, LifestyleDietType } from '../../types/user';
 import { getSessionUserId, insertBodyLogRemote } from '../../services/userData';
+import { useTheme } from '../../theme/ThemeProvider';
 
 type EditRowProps = {
   label: string;
@@ -21,12 +22,14 @@ type EditRowProps = {
 };
 
 function EditRow({ label, value, helperText, onEdit }: EditRowProps) {
+  const { colors } = useTheme();
+
   return (
-    <View style={styles.editRow}>
+    <View style={[styles.editRow, { borderTopColor: colors.border }]}>
       <View style={styles.editRowLeft}>
-        <Text style={styles.editRowLabel}>{label}</Text>
-        {!!helperText && <Text style={styles.editRowHelper}>{helperText}</Text>}
-        <Text style={styles.editRowValue} numberOfLines={2}>
+        <Text style={[styles.editRowLabel, { color: colors.textSecondary }]}>{label}</Text>
+        {!!helperText && <Text style={[styles.editRowHelper, { color: colors.textGray }]}>{helperText}</Text>}
+        <Text style={[styles.editRowValue, { color: colors.text }]} numberOfLines={2}>
           {value}
         </Text>
       </View>
@@ -40,6 +43,7 @@ function EditRow({ label, value, helperText, onEdit }: EditRowProps) {
 export default function EditPersonalInfoScreen() {
   const navigation = useNavigation();
   const { alert } = useAppAlert();
+  const { colors } = useTheme();
 
   const profile = useUserStore(state => state.profile);
   const updateProfile = useUserStore(state => state.updateProfile);
@@ -58,7 +62,9 @@ export default function EditPersonalInfoScreen() {
     typeof profile?.height === 'number' ? String(profile.height) : ''
   );
   const [ageText, setAgeText] = useState(typeof profile?.age === 'number' ? String(profile.age) : '');
-  const [gender, setGender] = useState<'male' | 'female' | ''>(profile?.gender || '');
+  const initialGender: 'male' | 'female' | '' =
+    profile?.gender === 'male' || profile?.gender === 'female' ? profile.gender : '';
+  const [gender, setGender] = useState<'male' | 'female' | ''>(initialGender);
 
   const parseNumber = (v: string) => {
     const n = Number(String(v).replace(/[^0-9.]/g, ''));
@@ -210,38 +216,38 @@ export default function EditPersonalInfoScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }] }>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <AppIcon name="chevron-left" size={26} color={COLORS.text} />
+          <AppIcon name="chevron-left" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>내 정보 수정</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>내 정보 수정</Text>
         <TouchableOpacity
           onPress={handleSaveAll}
           style={styles.saveButton}
           accessibilityRole="button"
           disabled={saving}
         >
-          <Text style={[styles.saveButtonText, saving && { opacity: 0.6 }]}>저장</Text>
+          <Text style={[styles.saveButtonText, { color: colors.primary }, saving && { opacity: 0.6 }]}>저장</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>닉네임</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>닉네임</Text>
           <View style={styles.nicknameRow}>
             <TextInput
-              style={styles.textInput}
+              style={[styles.textInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
               value={nicknameDraft}
               onChangeText={setNicknameDraft}
               placeholder="닉네임 입력"
-              placeholderTextColor={COLORS.textGray}
+              placeholderTextColor={colors.textGray}
             />
           </View>
         </Card>
 
         <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>내 설정</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>내 설정</Text>
           <EditRow label="체형 목표" value={bodyGoalLabel} onEdit={openBodyGoalAlert} />
           <EditRow
             label="건강 목적"
@@ -263,26 +269,26 @@ export default function EditPersonalInfoScreen() {
         </Card>
 
         <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>신체 정보</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>신체 정보</Text>
 
           <View style={styles.fieldRow}>
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>현재 체중(kg)</Text>
+              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>현재 체중(kg)</Text>
               <TextInput
-                style={styles.fieldInput}
+                style={[styles.fieldInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
                 placeholder="예: 67"
-                placeholderTextColor={COLORS.textGray}
+                placeholderTextColor={colors.textGray}
                 keyboardType="numeric"
                 value={currentWeightText}
                 onChangeText={setCurrentWeightText}
               />
             </View>
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>목표 체중(kg)</Text>
+              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>목표 체중(kg)</Text>
               <TextInput
-                style={styles.fieldInput}
+                style={[styles.fieldInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
                 placeholder="예: 62"
-                placeholderTextColor={COLORS.textGray}
+                placeholderTextColor={colors.textGray}
                 keyboardType="numeric"
                 value={targetWeightText}
                 onChangeText={setTargetWeightText}
@@ -292,22 +298,22 @@ export default function EditPersonalInfoScreen() {
 
           <View style={styles.fieldRow}>
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>키(cm)</Text>
+              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>키(cm)</Text>
               <TextInput
-                style={styles.fieldInput}
+                style={[styles.fieldInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
                 placeholder="예: 172"
-                placeholderTextColor={COLORS.textGray}
+                placeholderTextColor={colors.textGray}
                 keyboardType="numeric"
                 value={heightText}
                 onChangeText={setHeightText}
               />
             </View>
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>나이</Text>
+              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>나이</Text>
               <TextInput
-                style={styles.fieldInput}
+                style={[styles.fieldInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
                 placeholder="예: 28"
-                placeholderTextColor={COLORS.textGray}
+                placeholderTextColor={colors.textGray}
                 keyboardType="numeric"
                 value={ageText}
                 onChangeText={setAgeText}
@@ -315,7 +321,7 @@ export default function EditPersonalInfoScreen() {
             </View>
           </View>
 
-          <Text style={[styles.fieldLabel, { marginTop: 10 }]}>성별</Text>
+          <Text style={[styles.fieldLabel, { marginTop: 10, color: colors.textSecondary }]}>성별</Text>
           <View style={styles.chipRow}>
             {([
               { id: 'male', label: '남' },
@@ -323,10 +329,14 @@ export default function EditPersonalInfoScreen() {
             ] as const).map(opt => (
               <TouchableOpacity
                 key={opt.id}
-                style={[styles.chip, gender === opt.id && styles.chipSelected]}
+                style={[
+                  styles.chip,
+                  { backgroundColor: colors.background, borderColor: colors.border },
+                  gender === opt.id && [styles.chipSelected, { backgroundColor: colors.primary, borderColor: colors.primary }],
+                ]}
                 onPress={() => setGender(prev => (prev === opt.id ? '' : opt.id))}
               >
-                <Text style={[styles.chipText, gender === opt.id && styles.chipTextSelected]}>{opt.label}</Text>
+                <Text style={[styles.chipText, { color: colors.textSecondary }, gender === opt.id && styles.chipTextSelected]}>{opt.label}</Text>
               </TouchableOpacity>
             ))}
           </View>

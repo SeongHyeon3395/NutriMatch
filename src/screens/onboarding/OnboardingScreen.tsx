@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { RootStackParamList } from '../../navigation/types';
 import { AppIcon } from '../../components/ui/AppIcon';
@@ -246,6 +247,16 @@ export default function OnboardingScreen() {
     }
 
     // 온보딩 직후 스캔 탭으로 보내 튜토리얼이 자연스럽게 이어지게 함
+    try {
+      const basePendingKey = '@nutrimatch_scan_tutorial_pending';
+      await AsyncStorage.setItem(basePendingKey, '1');
+      if (sessionUserId) {
+        await AsyncStorage.setItem(`${basePendingKey}:${sessionUserId}`, '1');
+      }
+    } catch {
+      // ignore
+    }
+
     navigation.replace('MainTab', { screen: 'Scan' });
   };
 

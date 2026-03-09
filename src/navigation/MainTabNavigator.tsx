@@ -2,8 +2,8 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MainTabParamList } from './types';
-import { COLORS } from '../constants/colors';
 import { AppIcon } from '../components/ui/AppIcon';
+import { useTheme } from '../theme/ThemeProvider';
 
 // Screens
 import ScanScreen from '../screens/main/ScanScreen';
@@ -16,28 +16,34 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 
 export default function MainTabNavigator() {
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
 
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         animation: 'none',
-        tabBarActiveTintColor: COLORS.primary,
-        tabBarInactiveTintColor: COLORS.textGray,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textGray,
         tabBarStyle: {
-          backgroundColor: COLORS.background,
+          backgroundColor: colors.surface,
           borderTopWidth: 1,
-          borderTopColor: COLORS.border,
-          height: 56 + insets.bottom,
-          paddingTop: 6,
-          paddingBottom: 6 + insets.bottom,
+          borderTopColor: colors.border,
+          height: 64 + insets.bottom,
+          paddingTop: 8,
+          paddingBottom: 8 + insets.bottom,
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: -6 },
+          shadowOpacity: isDark ? 0.08 : 0,
+          shadowRadius: isDark ? 16 : 0,
+          elevation: isDark ? 10 : 0,
         },
         tabBarItemStyle: {
           paddingVertical: 2,
         },
         tabBarLabelStyle: {
           fontSize: 12,
-          fontWeight: '500',
+          fontWeight: '700',
         },
       }}
     >

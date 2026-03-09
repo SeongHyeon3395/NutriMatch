@@ -7,6 +7,7 @@ import { Card } from '../../components/ui/Card';
 import { COLORS } from '../../constants/colors';
 import { GRADE_COLORS } from '../../types/user';
 import { getMonthlyDietScoresTimelineRemote, MonthlyDietScoreRow } from '../../services/userData';
+import { useTheme } from '../../theme/ThemeProvider';
 
 function scoreToColor(score: number) {
   if (score >= 85) return GRADE_COLORS.very_good;
@@ -24,6 +25,7 @@ function formatMonthLabel(monthStartIso: string) {
 
 export default function MonthlyDietScoresScreen() {
   const navigation = useNavigation();
+  const { colors } = useTheme();
   const [rows, setRows] = useState<MonthlyDietScoreRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -55,44 +57,44 @@ export default function MonthlyDietScoresScreen() {
   }, [rows]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]}>
+      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button">
-          <AppIcon name="chevron-left" size={26} color={COLORS.text} />
+          <AppIcon name="chevron-left" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>월간 식단 점수</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>월간 식단 점수</Text>
         <View style={styles.headerRight} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Card style={styles.hero}>
-          <Text style={styles.heroTitle}>2026년 1월부터 월간 기록</Text>
-          <Text style={styles.heroSub}>
+        <Card style={styles.hero} variant="elevated">
+          <Text style={[styles.heroTitle, { color: colors.text }]}>2026년 1월부터 월간 기록</Text>
+          <Text style={[styles.heroSub, { color: colors.textSecondary }] }>
             이번 달 평균 점수는 {typeof summary.score === 'number' ? `${summary.score}점` : '-'} · 기록 {summary.count}개 기준이에요.
           </Text>
         </Card>
 
         {loading ? (
           <View style={styles.loading}>
-            <ActivityIndicator color={COLORS.primary} />
-            <Text style={styles.loadingText}>불러오는 중…</Text>
+            <ActivityIndicator color={colors.text} />
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>불러오는 중…</Text>
           </View>
         ) : rows.length === 0 ? (
-          <Card style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>표시할 기록이 없어요</Text>
-            <Text style={styles.emptySub}>식단 기록을 저장하면 월별 점수가 자동으로 쌓여요.</Text>
+          <Card style={styles.emptyCard} variant="elevated">
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>표시할 기록이 없어요</Text>
+            <Text style={[styles.emptySub, { color: colors.textSecondary }]}>식단 기록을 저장하면 월별 점수가 자동으로 쌓여요.</Text>
           </Card>
         ) : (
-          <Card style={styles.listCard}>
+          <Card style={styles.listCard} variant="elevated">
             {rows.map((r, idx) => {
               const score = typeof r.avg_score100 === 'number' ? r.avg_score100 : null;
-              const color = typeof score === 'number' ? scoreToColor(score) : COLORS.textSecondary;
+              const color = typeof score === 'number' ? scoreToColor(score) : colors.textSecondary;
               return (
-                <View key={`m-${idx}`} style={styles.row}>
+                <View key={`m-${idx}`} style={[styles.row, { borderBottomColor: colors.border }]}>
                   <View style={[styles.dot, { backgroundColor: color }]} />
                   <View style={styles.rowText}>
-                    <Text style={styles.month}>{formatMonthLabel(r.month_start)}</Text>
-                    <Text style={styles.meta}>기록 {r.logs_count}개</Text>
+                    <Text style={[styles.month, { color: colors.text }]}>{formatMonthLabel(r.month_start)}</Text>
+                    <Text style={[styles.meta, { color: colors.textSecondary }]}>기록 {r.logs_count}개</Text>
                   </View>
                   <Text style={[styles.score, { color }]}>{typeof score === 'number' ? `${score}점` : '-'}</Text>
                 </View>

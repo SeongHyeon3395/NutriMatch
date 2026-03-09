@@ -8,13 +8,30 @@ import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
+import { useAppToast } from '../../components/ui/AppToast';
+import { ManualLogEditor } from '../../components/editor/ManualLogEditor';
 import { useUserStore } from '../../store/userStore';
-import { getSessionUserId, insertFoodLogRemote } from '../../services/userData';
+import { captureError, logEvent } from '../../services/telemetry';
 import { getFoodScore100 } from '../../services/foodScore';
 import { ensureUserAnalysis } from '../../services/userAnalysis';
 import { computeAllergenHits } from '../../services/allergen';
+import { useTheme } from '../../theme/ThemeProvider';
 
-import { FoodAnalysis, GRADE_COLORS } from '../../types/user';
+import { FoodAnalysis, GRADE_COLORS, ManualMealLog } from '../../types/user';
+
+function pad2(n: number) {
+  return String(n).padStart(2, '0');
+}
+
+function toYmd(date: Date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function isUnknownDishName(dishName: unknown): boolean {
+  const s = String(dishName ?? '').trim().toLowerCase();
+  if (!s) return true;
+  return s === '알 수 없는 음식' || s.includes('알 수 없는') || s.includes('알수없는') || s.includes('unknown');
+}
 
 export default function ResultScreen() {
   const navigation = useNavigation();
@@ -22,17 +39,20 @@ export default function ResultScreen() {
   const { imageUri, analysis, readOnly } = route.params as { imageUri: string; analysis: FoodAnalysis; readOnly?: boolean };
   const isReadOnly = Boolean(readOnly);
 
+  const unknownFood = isUnknownDishName(analysis?.dishName);
+
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showTagsModal, setShowTagsModal] = useState(false);
   const [imageBox, setImageBox] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
-  const { alert } = useAppAlert();
+  const { alert, dismiss } = useAppAlert();
+  const { toast } = useAppToast();
+  const { colors, isDark } = useTheme();
 
   const profile = useUserStore(state => state.profile);
-  const addFoodLog = useUserStore(state => state.addFoodLog);
-
-  const score100 = getFoodScore100(analysis);
+  const addManualMealLog = useUserStore(state => state.addManualMealLog);
+  const score100 = unknownFood ? 0 : getFoodScore100(analysis);
 
   const listOrEmpty = (arr: any): string[] =>
     Array.isArray(arr) ? arr.filter((x: any) => typeof x === 'string' && x.trim()) : [];
@@ -89,19 +109,38 @@ export default function ResultScreen() {
 
   const requestExit = () => setShowExitConfirm(true);
 
-  const goHomeWithoutSaving = () => {
-    setShowExitConfirm(false);
+  const goToScan = () => {
     const nav: any = navigation as any;
     if (typeof nav?.reset === 'function') {
       nav.reset({ index: 0, routes: [{ name: 'MainTab', params: { screen: 'Scan' } }] });
       return;
     }
-    (navigation as any).navigate('MainTab', { screen: 'Scan' });
+    nav.navigate?.('MainTab', { screen: 'Scan' });
+  };
+
+  const goToReshoot = () => {
+    const nav: any = navigation as any;
+    const rootNav = nav?.getParent?.() ?? nav;
+    rootNav.navigate?.('Camera');
+  };
+
+  const goHomeWithoutSaving = () => {
+    setShowExitConfirm(false);
+    goToScan();
   };
 
   useFocusEffect(
     React.useCallback(() => {
       if (isReadOnly) return;
+
+      if (unknownFood) {
+        const onBack = () => {
+          goToScan();
+          return true;
+        };
+        const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+        return () => sub.remove();
+      }
 
       const onBack = () => {
         requestExit();
@@ -109,10 +148,22 @@ export default function ResultScreen() {
       };
       const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
       return () => sub.remove();
-    }, [isReadOnly])
+    }, [goToScan, isReadOnly, unknownFood])
   );
 
-  const macros = analysis.macros || {};
+  const rawMacros = analysis.macros || {};
+  const macros = unknownFood
+    ? {
+        ...rawMacros,
+        calories: 0,
+        carbs_g: 0,
+        protein_g: 0,
+        fat_g: 0,
+        sugar_g: 0,
+        fiber_g: 0,
+        sodium_mg: 0,
+      }
+    : rawMacros;
   const proteinG = typeof macros.protein_g === 'number' ? macros.protein_g : Number(macros.protein_g ?? 0) || 0;
   const carbsG = typeof macros.carbs_g === 'number' ? macros.carbs_g : Number(macros.carbs_g ?? 0) || 0;
   const fatG = typeof macros.fat_g === 'number' ? macros.fat_g : Number(macros.fat_g ?? 0) || 0;
@@ -141,7 +192,7 @@ export default function ResultScreen() {
 
   const userDisplayName = (profile?.nickname || profile?.name || '사용자').trim();
 
-  const gradeColor = (ua?.grade && (GRADE_COLORS as any)[ua.grade]) ? (GRADE_COLORS as any)[ua.grade] : COLORS.primary;
+  const gradeColor = (ua?.grade && (GRADE_COLORS as any)[ua.grade]) ? (GRADE_COLORS as any)[ua.grade] : colors.primary;
   const scoreText = typeof score100 === 'number' ? `${score100}점` : null;
 
   const userAllergens = Array.isArray(profile?.allergens) ? profile!.allergens : [];
@@ -287,8 +338,8 @@ export default function ResultScreen() {
 
   const renderList = (items: string[], variant: 'good' | 'bad' | 'warn') => {
     const iconName = variant === 'good' ? 'check-circle' : variant === 'bad' ? 'error' : 'warning';
-    const color = variant === 'good' ? COLORS.success : variant === 'bad' ? COLORS.danger : COLORS.secondary;
-    const textStyle = variant === 'good' ? styles.goodText : variant === 'bad' ? styles.badText : styles.warnText;
+    const color = variant === 'good' ? colors.success : variant === 'bad' ? colors.danger : colors.secondary;
+    const textColor = variant === 'good' ? colors.success : variant === 'bad' ? colors.danger : colors.secondary;
 
     if (!items || items.length === 0) {
       const emptyText =
@@ -302,7 +353,7 @@ export default function ResultScreen() {
         <View style={styles.listBlock}>
           <View style={styles.listRow}>
             <AppIcon name={iconName as any} size={18} color={color} />
-            <Text style={[styles.listRowText, textStyle]}>{emptyText}</Text>
+            <Text style={[styles.listRowText, { color: textColor, fontWeight: '700' }]}>{emptyText}</Text>
           </View>
         </View>
       );
@@ -313,20 +364,30 @@ export default function ResultScreen() {
         {items.slice(0, 6).map((t, idx) => (
           <View key={`${variant}-${idx}`} style={styles.listRow}>
             <AppIcon name={iconName as any} size={18} color={color} />
-            <Text style={[styles.listRowText, textStyle]}>{t}</Text>
+            <Text style={[styles.listRowText, { color: textColor, fontWeight: '700' }]}>{t}</Text>
           </View>
         ))}
       </View>
     );
   };
 
-  const Section = ({ title, subtitle, children }: { title: string; subtitle?: string | null; children: React.ReactNode }) => {
+  const Section = ({
+    title,
+    subtitle,
+    children,
+    noBorder = false,
+  }: {
+    title: string;
+    subtitle?: string | null;
+    children: React.ReactNode;
+    noBorder?: boolean;
+  }) => {
     return (
-      <View style={styles.section}>
+      <View style={[styles.section, { borderBottomColor: colors.border }, noBorder && styles.sectionNoBorder]}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{title}</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text>
         </View>
-        {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
+        {subtitle ? <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>{subtitle}</Text> : null}
         {children}
       </View>
     );
@@ -340,63 +401,116 @@ export default function ResultScreen() {
     return 'snack';
   };
 
-  const handleDone = async () => {
-    try {
-      const timestamp = new Date().toISOString();
-      const mealType = getMealTypeFromNow();
+  const openSaveToCalendar = () => {
+    const now = new Date();
+    const ymd = toYmd(now);
+    const localUserId = profile?.id ?? 'local';
+    const mealType = getMealTypeFromNow();
 
-      const userId = await getSessionUserId().catch(() => null);
-      if (userId) {
-        // 서버 우선 저장
-        const saved = await insertFoodLogRemote({
-          userId,
-          imageUri,
-          analysis,
-          mealType,
-          timestamp,
-        });
-        // 로컬 캐시(오프라인 빠른 표시용)
-        await addFoodLog(saved);
-      } else {
-        // 로컬 모드
-        await addFoodLog({
-          id: `${Date.now()}`,
-          userId: profile?.id ?? 'local',
-          imageUri,
-          analysis,
-          mealType,
-          timestamp,
-        });
-      }
+    const baseCalories = unknownFood
+      ? 0
+      : (typeof (analysis as any)?.macros?.calories === 'number'
+          ? (analysis as any).macros.calories
+          : Number((analysis as any)?.macros?.calories ?? 0) || 0);
+    const baseCarbs = unknownFood
+      ? 0
+      : (typeof (analysis as any)?.macros?.carbs_g === 'number'
+          ? (analysis as any).macros.carbs_g
+          : Number((analysis as any)?.macros?.carbs_g ?? 0) || 0);
+    const baseProtein = unknownFood
+      ? 0
+      : (typeof (analysis as any)?.macros?.protein_g === 'number'
+          ? (analysis as any).macros.protein_g
+          : Number((analysis as any)?.macros?.protein_g ?? 0) || 0);
+    const baseFat = unknownFood
+      ? 0
+      : (typeof (analysis as any)?.macros?.fat_g === 'number'
+          ? (analysis as any).macros.fat_g
+          : Number((analysis as any)?.macros?.fat_g ?? 0) || 0);
 
-      navigation.navigate('History');
-    } catch (e) {
-      console.error('Failed to save food log', e);
-      const message =
-        e instanceof Error ? e.message :
-        typeof e === 'string' ? e :
-        '';
-      alert({
-        title: '저장 실패',
-        message: message || '기록 저장 중 오류가 발생했습니다. 네트워크 상태를 확인하고 다시 시도해주세요.',
-      });
-    }
+    const draft: ManualMealLog = {
+      id: 'draft',
+      userId: localUserId,
+      date: ymd,
+      mealType,
+      foodName: String(analysis?.dishName ?? '').trim() ? String(analysis.dishName).trim() : undefined,
+      calories: Math.max(0, baseCalories),
+      carbs_g: Math.max(0, baseCarbs),
+      protein_g: Math.max(0, baseProtein),
+      fat_g: Math.max(0, baseFat),
+      imageUri,
+      timestamp: now.toISOString(),
+    };
+
+    alert({
+      title: '기록에 저장',
+      message: ymd,
+      actions: [],
+      content: (
+        <ManualLogEditor
+          initial={draft}
+          submitLabel="저장"
+          onClose={dismiss}
+          onSubmit={async (updates) => {
+            try {
+              const savedAt = new Date().toISOString();
+
+              // 1) 캘린더(해당 날짜 기록) 저장
+              const newManual: ManualMealLog = {
+                ...draft,
+                ...updates,
+                id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+                userId: localUserId,
+                date: ymd,
+                timestamp: savedAt,
+              };
+              await addManualMealLog(newManual);
+
+              logEvent('calendar_log_saved', { source: isReadOnly ? 'history_result' : 'scan_result' });
+              toast({ message: '캘린더에 추가했어요!', variant: 'success' });
+
+              dismiss();
+              (navigation as any).navigate('MainTab', { screen: 'Calendar' });
+            } catch (e) {
+              console.error('Failed to save food log', e);
+              captureError(e, { screen: 'ResultScreen', action: 'save_food_log' });
+              const message = e instanceof Error ? e.message : typeof e === 'string' ? e : '';
+              toast({ message: '저장에 실패했어요. 잠시 후 다시 시도해주세요.', variant: 'error', durationMs: 2400 });
+              alert({
+                title: '저장 실패',
+                message: message || '기록 저장 중 오류가 발생했습니다. 네트워크 상태를 확인하고 다시 시도해주세요.',
+              });
+            }
+          }}
+        />
+      ),
+    });
   };
 
-  const handleSaveAndExit = async () => {
+  const handleSaveAndExit = () => {
     setShowExitConfirm(false);
-    await handleDone();
+    openSaveToCalendar();
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header Image */}
         <View style={styles.imageHeader} onLayout={onImageHeaderLayout}>
           <Image source={{ uri: imageUri }} style={styles.headerImage} />
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => (isReadOnly ? navigation.goBack() : requestExit())}
+            onPress={() => {
+              if (isReadOnly) {
+                navigation.goBack();
+                return;
+              }
+              if (unknownFood) {
+                goToScan();
+                return;
+              }
+              requestExit();
+            }}
           >
             <AppIcon name="chevron-left" size={26} color="white" />
           </TouchableOpacity>
@@ -407,8 +521,8 @@ export default function ResultScreen() {
           {/* 이미지 위 라벨/태그는 표시하지 않음 (요청사항) */}
         </View>
 
-        <View style={styles.content}>
-          <Text style={styles.foodName}>{analysis.dishName}</Text>
+        <View style={[styles.content, { backgroundColor: colors.background, borderTopColor: colors.border }] }>
+          <Text style={[styles.foodName, { color: colors.text }]}>{analysis.dishName}</Text>
           {inlineTagsPreview.length > 0 ? (
             <View style={styles.inlineTagWrapRow}>
               <ScrollView
@@ -417,8 +531,17 @@ export default function ResultScreen() {
                 contentContainerStyle={styles.inlineTagRow}
               >
                 {inlineTagsPreview.map((tag, idx) => (
-                  <View key={`inline-tag-${idx}`} style={styles.inlineTagPill}>
-                    <Text style={styles.inlineTagText} numberOfLines={1}>
+                  <View
+                    key={`inline-tag-${idx}`}
+                    style={[
+                      styles.inlineTagPill,
+                      {
+                        backgroundColor: isDark ? colors.surfaceMuted : colors.surfaceElevated,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.inlineTagText, { color: colors.text }]} numberOfLines={1}>
                       {tag}
                     </Text>
                   </View>
@@ -429,71 +552,91 @@ export default function ResultScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="더보기"
                     onPress={() => setShowTagsModal(true)}
-                    style={styles.inlineTagMorePill}
+                    style={[styles.inlineTagMorePill, { backgroundColor: colors.surface, borderColor: colors.border }]}
                   >
-                    <Text style={styles.inlineTagMoreText}>더보기</Text>
+                    <Text style={[styles.inlineTagMoreText, { color: colors.text }]}>더보기</Text>
                   </TouchableOpacity>
                 ) : null}
               </ScrollView>
             </View>
           ) : null}
-          <Text style={styles.calories}>{macros.calories ?? '-'} kcal</Text>
+          <Text style={[styles.calories, { color: colors.text }]}>{macros.calories ?? '-'} kcal</Text>
           {scoreText ? (
             <View style={[styles.scoreInlinePill, { borderColor: gradeColor, backgroundColor: `${gradeColor}1A` }]}>
               <Text style={[styles.scoreInlineText, { color: gradeColor }]}>{scoreText}</Text>
             </View>
           ) : null}
 
+          {unknownFood ? (
+            <Section title="다시 촬영해보세요" noBorder>
+              <Text style={[styles.analysisText, { color: colors.text }]}>음식이 잘 보이도록 선명하게 촬영해 주세요.</Text>
+              <View style={[styles.listBlock, { marginTop: 8 }]}>
+                <View style={styles.listRow}>
+                  <AppIcon name="check" size={18} color={colors.textSecondary} />
+                  <Text style={[styles.listRowText, { color: colors.text } ]}>초점을 맞추고 흔들림 없이 찍어주세요.</Text>
+                </View>
+                <View style={styles.listRow}>
+                  <AppIcon name="check" size={18} color={colors.textSecondary} />
+                  <Text style={[styles.listRowText, { color: colors.text } ]}>음식이 화면 중앙에 크게 나오게 해주세요.</Text>
+                </View>
+                <View style={styles.listRow}>
+                  <AppIcon name="check" size={18} color={colors.textSecondary} />
+                  <Text style={[styles.listRowText, { color: colors.text } ]}>조명이 어두우면 밝은 곳에서 다시 찍어주세요.</Text>
+                </View>
+              </View>
+            </Section>
+          ) : (
+            <>
           {/* Macros + Diet Type */}
           <Section title="영양 요약">
             <View style={styles.macrosContainer}>
               <Card style={styles.macroCard}>
-                <Text style={styles.macroValue}>{proteinG || 0}g</Text>
-                <Text style={styles.macroLabel}>단백질</Text>
-                <View style={styles.macroBarTrack}>
-                  <View style={[styles.macroBarFill, { backgroundColor: COLORS.primary, width: `${macroPct.protein}%` }]} />
+                <Text style={[styles.macroValue, { color: colors.text }]}>{proteinG || 0}g</Text>
+                <Text style={[styles.macroLabel, { color: colors.textSecondary }]}>단백질</Text>
+                <View style={[styles.macroBarTrack, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }] }>
+                  <View style={[styles.macroBarFill, { backgroundColor: colors.primary, width: `${macroPct.protein}%` }]} />
                 </View>
-                <Text style={styles.macroPctText}>{macroPct.protein}%</Text>
+                <Text style={[styles.macroPctText, { color: colors.textSecondary }]}>{macroPct.protein}%</Text>
               </Card>
               <Card style={styles.macroCard}>
-                <Text style={styles.macroValue}>{carbsG || 0}g</Text>
-                <Text style={styles.macroLabel}>탄수화물</Text>
-                <View style={styles.macroBarTrack}>
-                  <View style={[styles.macroBarFill, { backgroundColor: COLORS.secondary, width: `${macroPct.carbs}%` }]} />
+                <Text style={[styles.macroValue, { color: colors.text }]}>{carbsG || 0}g</Text>
+                <Text style={[styles.macroLabel, { color: colors.textSecondary }]}>탄수화물</Text>
+                <View style={[styles.macroBarTrack, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }] }>
+                  <View style={[styles.macroBarFill, { backgroundColor: colors.secondary, width: `${macroPct.carbs}%` }]} />
                 </View>
-                <Text style={styles.macroPctText}>{macroPct.carbs}%</Text>
+                <Text style={[styles.macroPctText, { color: colors.textSecondary }]}>{macroPct.carbs}%</Text>
               </Card>
               <Card style={styles.macroCard}>
-                <Text style={styles.macroValue}>{fatG || 0}g</Text>
-                <Text style={styles.macroLabel}>지방</Text>
-                <View style={styles.macroBarTrack}>
-                  <View style={[styles.macroBarFill, { backgroundColor: COLORS.destructive, width: `${macroPct.fat}%` }]} />
+                <Text style={[styles.macroValue, { color: colors.text }]}>{fatG || 0}g</Text>
+                <Text style={[styles.macroLabel, { color: colors.textSecondary }]}>지방</Text>
+                <View style={[styles.macroBarTrack, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }] }>
+                  <View style={[styles.macroBarFill, { backgroundColor: colors.destructive, width: `${macroPct.fat}%` }]} />
                 </View>
-                <Text style={styles.macroPctText}>{macroPct.fat}%</Text>
+                <Text style={[styles.macroPctText, { color: colors.textSecondary }]}>{macroPct.fat}%</Text>
               </Card>
             </View>
 
-            <View style={[styles.macroGauge, { marginTop: 10 }]}>
-              <View style={[styles.macroGaugeSeg, { backgroundColor: COLORS.primary, width: `${macroPct.protein}%` }]} />
-              <View style={[styles.macroGaugeSeg, { backgroundColor: COLORS.secondary, width: `${macroPct.carbs}%` }]} />
-              <View style={[styles.macroGaugeSeg, { backgroundColor: COLORS.destructive, width: `${macroPct.fat}%` }]} />
+            <View style={[styles.macroGauge, { marginTop: 10, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
+              <View style={[styles.macroGaugeSeg, { backgroundColor: colors.primary, width: `${macroPct.protein}%` }]} />
+              <View style={[styles.macroGaugeSeg, { backgroundColor: colors.secondary, width: `${macroPct.carbs}%` }]} />
+              <View style={[styles.macroGaugeSeg, { backgroundColor: colors.destructive, width: `${macroPct.fat}%` }]} />
             </View>
 
-            <Text style={[styles.subTitle, { marginTop: 12 }]}>수정/추가 포인트</Text>
+            <Text style={[styles.subTitle, { marginTop: 12, color: colors.text }]}>수정/추가 포인트</Text>
             {macroAdjustments.length > 0 ? (
               <View style={styles.listBlock}>
                 {macroAdjustments.map((t, idx) => (
                   <View key={`adj-${idx}`} style={styles.listRow}>
-                    <AppIcon name="tune" size={18} color={COLORS.textSecondary} />
-                    <Text style={styles.listRowText}>{t}</Text>
+                    <AppIcon name="tune" size={18} color={colors.textSecondary} />
+                    <Text style={[styles.listRowText, { color: colors.text }]}>{t}</Text>
                   </View>
                 ))}
               </View>
             ) : (
               <View style={styles.listBlock}>
                 <View style={styles.listRow}>
-                  <AppIcon name="tune" size={18} color={COLORS.textSecondary} />
-                  <Text style={styles.listRowText}>현재는 큰 수정 포인트가 없어요. 사진을 더 선명하게 찍으면 조언이 더 구체화돼요.</Text>
+                  <AppIcon name="tune" size={18} color={colors.textSecondary} />
+                  <Text style={[styles.listRowText, { color: colors.text }]}>현재는 큰 수정 포인트가 없어요. 사진을 더 선명하게 찍으면 조언이 더 구체화돼요.</Text>
                 </View>
               </View>
             )}
@@ -504,8 +647,8 @@ export default function ResultScreen() {
             <View style={styles.listBlock}>
               {checkLines.map((t, idx) => (
                 <View key={`check-${idx}`} style={styles.listRow}>
-                  <AppIcon name="check-circle" size={18} color={COLORS.success} />
-                  <Text style={[styles.listRowText, styles.goodText]}>{t}</Text>
+                  <AppIcon name="check-circle" size={18} color={colors.success} />
+                  <Text style={[styles.listRowText, { color: colors.success, fontWeight: '700' }]}>{t}</Text>
                 </View>
               ))}
             </View>
@@ -517,16 +660,16 @@ export default function ResultScreen() {
               <View style={styles.listBlock}>
                 {dangerItems.map((t, idx) => (
                   <View key={`danger-${idx}`} style={styles.listRow}>
-                    <AppIcon name="warning" size={18} color={COLORS.danger} />
-                    <Text style={[styles.listRowText, styles.badText]}>{t}</Text>
+                    <AppIcon name="warning" size={18} color={colors.danger} />
+                    <Text style={[styles.listRowText, { color: colors.danger, fontWeight: '700' }]}>{t}</Text>
                   </View>
                 ))}
               </View>
             ) : (
               <View style={styles.listBlock}>
                 <View style={styles.listRow}>
-                  <AppIcon name="check-circle" size={18} color={COLORS.textSecondary} />
-                  <Text style={styles.listRowText}>현재 프로필 기준으로 특별히 위험한 경고는 없어요.</Text>
+                  <AppIcon name="check-circle" size={18} color={colors.textSecondary} />
+                  <Text style={[styles.listRowText, { color: colors.text }]}>현재 프로필 기준으로 특별히 위험한 경고는 없어요.</Text>
                 </View>
               </View>
             )}
@@ -543,16 +686,16 @@ export default function ResultScreen() {
               <View style={styles.listBlock}>
                 {alternatives.slice(0, 6).map((t: string, idx: number) => (
                   <View key={`alt-${idx}`} style={styles.listRow}>
-                    <AppIcon name="swap-horiz" size={18} color={COLORS.textSecondary} />
-                    <Text style={styles.listRowText}>{t}</Text>
+                    <AppIcon name="swap-horiz" size={18} color={colors.textSecondary} />
+                    <Text style={[styles.listRowText, { color: colors.text }]}>{t}</Text>
                   </View>
                 ))}
               </View>
             ) : (
               <View style={styles.listBlock}>
                 <View style={styles.listRow}>
-                  <AppIcon name="swap-horiz" size={18} color={COLORS.textSecondary} />
-                  <Text style={styles.listRowText}>채소를 곁들이고, 소스를 줄이면 더 좋은 선택이 될 수 있어요.</Text>
+                  <AppIcon name="swap-horiz" size={18} color={colors.textSecondary} />
+                  <Text style={[styles.listRowText, { color: colors.text }]}>채소를 곁들이고, 소스를 줄이면 더 좋은 선택이 될 수 있어요.</Text>
                 </View>
               </View>
             )}
@@ -561,43 +704,60 @@ export default function ResultScreen() {
           {/* Other */}
           <Section title="분석 상세" subtitle="목표/식단/건강 관점에서 더 풀어쓴 내용">
               <>
-                <Text style={styles.subTitle}>목표 기준</Text>
+                <Text style={[styles.subTitle, { color: colors.text }]}>목표 기준</Text>
                 {goalFit.slice(0, 4).map((t: string, idx: number) => (
-                  <Text key={`goal-${idx}`} style={styles.bulletText}>• {t}</Text>
+                  <Text key={`goal-${idx}`} style={[styles.bulletText, { color: colors.textSecondary }]}>• {t}</Text>
                 ))}
               </>
               <>
-                <Text style={[styles.subTitle, { marginTop: 10 }]}>현재 식단 기준</Text>
+                <Text style={[styles.subTitle, { marginTop: 10, color: colors.text }]}>현재 식단 기준</Text>
                 {dietFit.slice(0, 4).map((t: string, idx: number) => (
-                  <Text key={`diet-${idx}`} style={styles.bulletText}>• {t}</Text>
+                  <Text key={`diet-${idx}`} style={[styles.bulletText, { color: colors.textSecondary }]}>• {t}</Text>
                 ))}
               </>
               <>
-                <Text style={[styles.subTitle, { marginTop: 10 }]}>건강 관점</Text>
+                <Text style={[styles.subTitle, { marginTop: 10, color: colors.text }]}>건강 관점</Text>
                 {healthImpact.slice(0, 6).map((t: string, idx: number) => (
-                  <Text key={`health-${idx}`} style={styles.bulletText}>• {t}</Text>
+                  <Text key={`health-${idx}`} style={[styles.bulletText, { color: colors.textSecondary }]}>• {t}</Text>
                 ))}
               </>
           </Section>
 
           {/* At a glance (bottom) */}
-          <Section title="한눈에 보기" subtitle={tips[0] ? null : '분석이 비어있으면 기본 설명이 표시돼요.'}>
-            <Text style={styles.analysisText}>
+          <Section title="한눈에 보기" subtitle={tips[0] ? null : '분석이 비어있으면 기본 설명이 표시돼요.'} noBorder>
+            <Text style={[styles.analysisText, { color: colors.text }] }>
               {tips[0] || analysis.description || '분석 결과가 없습니다.'}
             </Text>
-            <Text style={styles.analysisNote}>
+            <Text style={[styles.analysisNote, { color: colors.textSecondary }]}>
               사진과 사용자 프로필을 바탕으로 AI가 추정한 결과예요. 더 정확히 보려면 선명하게 다시 찍어주세요.
             </Text>
           </Section>
 
-          {!isReadOnly ? (
+            </>
+          )}
+
+          {isReadOnly ? (
             <Button 
-              title="기록에 남기기" 
-              onPress={handleDone} 
-              icon={<AppIcon name="check" size={20} color="white" />}
+              title="캘린더에 추가하기" 
+              onPress={openSaveToCalendar} 
+              icon={<AppIcon name="event-available" size={20} color="white" />}
               style={styles.doneButton}
             />
-          ) : null}
+          ) : unknownFood ? (
+            <Button
+              title="다시 촬영하기"
+              onPress={goToReshoot}
+              icon={<AppIcon name="photo-camera" size={20} color="white" />}
+              style={styles.doneButton}
+            />
+          ) : (
+            <Button 
+              title="캘린더에 추가하기" 
+              onPress={openSaveToCalendar} 
+              icon={<AppIcon name="event-available" size={20} color="white" />}
+              style={styles.doneButton}
+            />
+          )}
         </View>
       </ScrollView>
 
@@ -617,23 +777,23 @@ export default function ResultScreen() {
         onRequestClose={() => setShowTagsModal(false)}
       >
         <View style={styles.tagsBackdrop}>
-          <View style={styles.tagsCard}>
+          <View style={[styles.tagsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.tagsHeaderRow}>
-              <Text style={styles.tagsTitle}>재료/구성</Text>
+              <Text style={[styles.tagsTitle, { color: colors.text }]}>재료/구성</Text>
               <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityLabel="닫기"
                 onPress={() => setShowTagsModal(false)}
-                style={styles.tagsCloseBtn}
+                style={[styles.tagsCloseBtn, { backgroundColor: colors.surfaceMuted }]}
               >
-                <AppIcon name="close" size={20} color={COLORS.text} />
+                <AppIcon name="close" size={20} color={colors.text} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.tagsGrid}>
               {inlineTags.map((tag, idx) => (
-                <View key={`all-tag-${idx}`} style={styles.tagsGridPill}>
-                  <Text style={styles.tagsGridText}>{tag}</Text>
+                <View key={`all-tag-${idx}`} style={[styles.tagsGridPill, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }] }>
+                  <Text style={[styles.tagsGridText, { color: colors.text }]}>{tag}</Text>
                 </View>
               ))}
             </View>
@@ -643,17 +803,17 @@ export default function ResultScreen() {
 
       <Modal visible={showExitConfirm} transparent animationType="fade" onRequestClose={() => setShowExitConfirm(false)}>
         <View style={styles.exitBackdrop}>
-          <View style={styles.exitCard}>
+          <View style={[styles.exitCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.exitHeaderRow}>
-              <Text style={styles.exitTitle}>잠깐!</Text>
-              <TouchableOpacity onPress={() => setShowExitConfirm(false)} style={styles.exitCloseBtn}>
-                <AppIcon name="close" size={20} color={COLORS.text} />
+              <Text style={[styles.exitTitle, { color: colors.text }]}>잠깐!</Text>
+              <TouchableOpacity onPress={() => setShowExitConfirm(false)} style={[styles.exitCloseBtn, { backgroundColor: colors.surfaceMuted }]}>
+                <AppIcon name="close" size={20} color={colors.text} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.exitMessage}>이 결과를 저장하고 나갈까요?</Text>
+            <Text style={[styles.exitMessage, { color: colors.textSecondary }]}>이 결과를 캘린더에 추가하고 나갈까요?</Text>
 
             <View style={styles.exitActionsRow}>
-              <Button title="저장하기" onPress={handleSaveAndExit} style={styles.exitBtn} />
+              <Button title="캘린더에 추가" onPress={handleSaveAndExit} style={styles.exitBtn} />
               <Button title="나가기" variant="outline" onPress={goHomeWithoutSaving} style={styles.exitBtn} />
             </View>
           </View>
@@ -713,6 +873,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    borderTopWidth: 1,
   },
   foodName: {
     fontSize: 28,
@@ -832,6 +993,10 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
+  },
+  sectionNoBorder: {
+    borderBottomWidth: 0,
+    paddingBottom: 4,
   },
   sectionHeader: {
     flexDirection: 'row',

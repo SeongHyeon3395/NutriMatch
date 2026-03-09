@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
-import { COLORS, RADIUS } from '../../constants/colors';
+import { RADIUS } from '../../constants/colors';
+import { useTheme } from '../../theme/ThemeProvider';
 
 interface CardProps {
   children: React.ReactNode;
@@ -9,8 +10,22 @@ interface CardProps {
 }
 
 export const Card: React.FC<CardProps> = ({ children, style, variant = 'default' }) => {
+  const { colors, isDark } = useTheme();
+  const isElevated = variant === 'elevated';
+
   return (
-    <View style={[styles.card, variant === 'elevated' && styles.elevated, style]}>
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: isElevated ? colors.surfaceElevated : colors.surface,
+          borderColor: colors.border,
+        },
+        isElevated && [styles.elevated, { borderColor: colors.surfaceMuted, shadowColor: colors.shadow }],
+        isElevated && !isDark && styles.elevatedLight,
+        style,
+      ]}
+    >
       {children}
     </View>
   );
@@ -18,18 +33,19 @@ export const Card: React.FC<CardProps> = ({ children, style, variant = 'default'
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: COLORS.background,
-    borderRadius: RADIUS.md,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    overflow: 'hidden',
+    overflow: 'visible',
   },
   elevated: {
-    borderWidth: 0,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  elevatedLight: {
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
 });

@@ -55,3 +55,20 @@ jest.mock('react-native-vision-camera', () => {
     useCameraPermission: () => ({ hasPermission: true, requestPermission: async () => true }),
   };
 });
+
+jest.mock('@react-native-community/netinfo', () => ({
+  __esModule: true,
+  default: {
+    addEventListener: jest.fn(() => jest.fn()),
+    fetch: jest.fn(async () => ({ isConnected: true, isInternetReachable: true })),
+  },
+  addEventListener: jest.fn(() => jest.fn()),
+  fetch: jest.fn(async () => ({ isConnected: true, isInternetReachable: true })),
+  useNetInfo: jest.fn(() => ({ isConnected: true, isInternetReachable: true })),
+}));
+
+jest.mock('@sentry/react-native', () => ({
+  init: jest.fn(),
+  captureException: jest.fn(),
+  addBreadcrumb: jest.fn(),
+}));

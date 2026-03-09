@@ -1,5 +1,7 @@
 import { BASE_URL, ENDPOINTS, buildSupabaseHeaders } from '../config';
 import { Platform } from 'react-native';
+import { fetchJson, fetchWithTimeout } from './http';
+import { supabase } from './supabaseClient';
 
 export type AnalyzeResponse = {
   ok: boolean;
@@ -60,9 +62,22 @@ export type HealthChatResponse = {
   data?: {
     reply: string;
     model?: string;
+    token?: {
+      used?: number;
+      remaining?: number;
+      limit?: number;
+      planId?: string;
+    };
   };
   [key: string]: any;
 };
+
+async function getSessionAccessToken(): Promise<string | undefined> {
+  if (!supabase) return undefined;
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  return typeof token === 'string' && token.trim() ? token : undefined;
+}
 
 function normalizeUri(uri: string) {
   // On iOS, ImagePicker returns 'file://', Android may return content or file scheme.
@@ -91,14 +106,18 @@ async function uploadImage(endpoint: string, fileUri: string, extraFields?: Reco
     });
   }
 
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
-    method: 'POST',
-    headers: {
-      ...buildSupabaseHeaders(),
-      // Do NOT set 'Content-Type' manually for RN FormData; boundary is auto-set
+  const res = await fetchWithTimeout(
+    `${BASE_URL}${endpoint}`,
+    {
+      method: 'POST',
+      headers: {
+        ...buildSupabaseHeaders(),
+        // Do NOT set 'Content-Type' manually for RN FormData; boundary is auto-set
+      },
+      body: form,
     },
-    body: form,
-  });
+    20000
+  );
 
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -115,8 +134,11 @@ export async function analyzeFoodImage(fileUri: string, userContext?: Record<str
 
 export async function pingHealth(): Promise<AnalyzeResponse> {
   if (!BASE_URL) throw new Error('BASE_URL 비어있음');
-  const res = await fetch(`${BASE_URL}${ENDPOINTS.health}`);
-  const json = await res.json().catch(() => ({}));
+  const { res, json } = await fetchJson<AnalyzeResponse>(
+    `${BASE_URL}${ENDPOINTS.health}`,
+    { method: 'GET' },
+    { timeoutMs: 8000, retries: 1 }
+  );
   if (!res.ok) throw new Error(`Health 실패 HTTP ${res.status}`);
   return json as AnalyzeResponse;
 }
@@ -128,16 +150,20 @@ export async function chatHealth(payload: HealthChatRequest): Promise<HealthChat
     );
   }
 
-  const res = await fetch(`${BASE_URL}${ENDPOINTS.healthChat}`, {
-    method: 'POST',
-    headers: {
-      ...buildSupabaseHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
+  const accessToken = await getSessionAccessToken().catch(() => undefined);
 
-  const json = await res.json().catch(() => ({}));
+  const { res, json } = await fetchJson<HealthChatResponse>(
+    `${BASE_URL}${ENDPOINTS.healthChat}`,
+    {
+      method: 'POST',
+      headers: {
+        ...buildSupabaseHeaders(accessToken),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+    { timeoutMs: 15000, retries: 1, retryDelayMs: 700 }
+  );
   if (!res.ok || !json?.ok) {
     const message = json?.message || json?.error || `HTTP ${res.status}`;
     throw new Error(message);
@@ -152,18 +178,20 @@ export async function signupDevice(payload: SignupDeviceRequest): Promise<Signup
     );
   }
 
-  const res = await fetch(`${BASE_URL}${ENDPOINTS.signupDevice}`, {
-    method: 'POST',
-    headers: {
-      ...buildSupabaseHeaders(),
-      'Content-Type': 'application/json',
+  const { res, json } = await fetchJson<SignupDeviceResponse>(
+    `${BASE_URL}${ENDPOINTS.signupDevice}`,
+    {
+      method: 'POST',
+      headers: {
+        ...buildSupabaseHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  });
-
-  const json = await res.json().catch(() => ({}));
+    { timeoutMs: 12000, retries: 1 }
+  );
   if (!res.ok || !json?.ok) {
-    const message = json?.message || json?.error || `HTTP ${res.status}`;
+    const message = (json as any)?.message || (json as any)?.error || `HTTP ${res.status}`;
     throw new Error(message);
   }
   return json as SignupDeviceResponse;
@@ -176,18 +204,20 @@ export async function checkUsername(username: string): Promise<CheckUsernameResp
     );
   }
 
-  const res = await fetch(`${BASE_URL}${ENDPOINTS.checkUsername}`, {
-    method: 'POST',
-    headers: {
-      ...buildSupabaseHeaders(),
-      'Content-Type': 'application/json',
+  const { res, json } = await fetchJson<CheckUsernameResponse>(
+    `${BASE_URL}${ENDPOINTS.checkUsername}`,
+    {
+      method: 'POST',
+      headers: {
+        ...buildSupabaseHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username }),
     },
-    body: JSON.stringify({ username }),
-  });
-
-  const json = await res.json().catch(() => ({}));
+    { timeoutMs: 12000, retries: 1 }
+  );
   if (!res.ok || !json?.ok) {
-    const message = json?.message || json?.error || `HTTP ${res.status}`;
+    const message = (json as any)?.message || (json as any)?.error || `HTTP ${res.status}`;
     throw new Error(message);
   }
   return json as CheckUsernameResponse;

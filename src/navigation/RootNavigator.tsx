@@ -33,6 +33,9 @@ import MealDetailScreen from '../screens/main/MealDetailScreen';
 import NotificationSettingsScreen from '../screens/main/NotificationSettingsScreen';
 import MealPlanDetailScreen from '../screens/main/MealPlanDetailScreen';
 import HistoryScreen from '../screens/main/HistoryScreen';
+import SubscriptionScreen from '../screens/main/SubscriptionScreen';
+import HelpCenterScreen from '../screens/main/HelpCenterScreen';
+import UpgradePlanScreen from '../screens/main/UpgradePlanScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -64,6 +67,7 @@ function isLikelyRefreshTokenExpiredError(err: any): boolean {
 
 export default function RootNavigator() {
   const setProfile = useUserStore(state => state.setProfile);
+  const loadProfile = useUserStore(state => state.loadProfile);
   const clearAllData = useUserStore(state => state.clearAllData);
   const { alert } = useAppAlert();
   const [booting, setBooting] = useState(true);
@@ -100,6 +104,14 @@ export default function RootNavigator() {
 
     (async () => {
       try {
+        // 원격 세션/프로필 로드보다 먼저, 로컬 캐시를 복원해
+        // 앱 재시작/새로고침 시 목표 등이 "초기화"처럼 보이지 않게 합니다.
+        try {
+          await loadProfile();
+        } catch {
+          // ignore
+        }
+
         if (!isSupabaseConfigured || !supabase) {
           if (mounted) resetTo('Login');
           return;
@@ -263,6 +275,9 @@ export default function RootNavigator() {
           <Stack.Screen name="Privacy" component={PrivacySecurityScreen} />
           <Stack.Screen name="Terms" component={TermsScreen} />
           <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
+          <Stack.Screen name="Subscription" component={SubscriptionScreen} />
+          <Stack.Screen name="HelpCenter" component={HelpCenterScreen} />
+          <Stack.Screen name="UpgradePlan" component={UpgradePlanScreen} />
 
           {/* Legacy / Fallback */}
           <Stack.Screen name="Home" component={HomeScreen} />
