@@ -17,6 +17,7 @@ import { useUserStore } from '../../store/userStore';
 import { getPlanLimits } from '../../services/plans';
 import { useTheme } from '../../theme/ThemeProvider';
 import { completeScanTutorial, getScanTutorialState, markScanTutorialVerifyPhase } from '../../services/scanTutorialState';
+import { useAppStartupStore } from '../../store/appStartupStore';
 
 export default function ScanScreen() {
   const navigation = useNavigation();
@@ -176,6 +177,18 @@ export default function ScanScreen() {
         setSessionUserId(userId);
         const tutorialState = getScanTutorialState(userId);
         setShowTutorial(Boolean(tutorialState.pending && !tutorialState.seen && tutorialState.phase !== 'verify'));
+
+        const startup = useAppStartupStore.getState();
+        const canUseStartupData = Boolean(userId && startup.initialized && startup.userId === userId);
+
+        if (canUseStartupData) {
+          setIsLoggedIn(true);
+          setMonthlyUsed(typeof startup.monthlyScanUsed === 'number' ? startup.monthlyScanUsed : null);
+          if (Array.isArray(startup.foodLogs) && startup.foodLogs.length > 0) {
+            await setFoodLogs(startup.foodLogs);
+          }
+          return;
+        }
 
         await refreshMonthlyCount();
         await loadFoodLogs();
@@ -623,8 +636,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     paddingHorizontal: SPACING.lg,
     paddingVertical: 14,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0,
     borderBottomColor: COLORS.border,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
     alignItems: 'center',
   },
   headerTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
@@ -645,7 +662,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.lg,
+    paddingTop: 0,
     paddingBottom: SPACING.md,
   },
   scrollInner: {

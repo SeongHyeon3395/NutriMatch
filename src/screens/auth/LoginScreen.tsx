@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppState,
   AppStateStatus,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
   StatusBar,
   View,
   Text,
@@ -452,109 +455,115 @@ export default function LoginScreen() {
         backgroundColor={COLORS.background}
         translucent={false}
       />
-      <View style={styles.content}>
-        <View style={styles.header}> 
-          <Text style={styles.title}>{appTitle}</Text>
-          <Text style={styles.subtitle}>나만의 AI 영양 관리 파트너</Text>
-        </View> 
+      <KeyboardAvoidingView style={styles.content} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          contentContainerStyle={styles.contentScroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.header}> 
+            <Text style={styles.title}>{appTitle}</Text>
+            <Text style={styles.subtitle}>나만의 AI 영양 관리 파트너</Text>
+          </View> 
   
-          <View style={styles.inputStack}> 
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>아이디</Text>
-              <TextInput  
-                value={username}
-                onChangeText={setUsername}
-                placeholder="아이디"  
-                placeholderTextColor={COLORS.textGray}
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.input}
-                returnKeyType="next"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>비밀번호</Text>
-              <View style={styles.passwordRow}>
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="비밀번호"
+            <View style={styles.inputStack}> 
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>아이디</Text>
+                <TextInput  
+                  value={username}
+                  onChangeText={setUsername}
+                  placeholder="아이디"  
                   placeholderTextColor={COLORS.textGray}
-                  secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  style={[styles.input, styles.passwordInput]}
-                  returnKeyType="done"
+                  style={styles.input}
+                  returnKeyType="next"
                 />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(v => !v)}
-                  style={styles.eyeButton}
-                  accessibilityRole="button"
-                  accessibilityLabel={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'}
-                >
-                  <AppIcon
-                    name={showPassword ? 'visibility-off' : 'visibility'}
-                    size={22}
-                    color={COLORS.textSecondary}
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>비밀번호</Text>
+                <View style={styles.passwordRow}>
+                  <TextInput
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="비밀번호"
+                    placeholderTextColor={COLORS.textGray}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[styles.input, styles.passwordInput]}
+                    returnKeyType="done"
                   />
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(v => !v)}
+                    style={styles.eyeButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'}
+                  >
+                    <AppIcon
+                      name={showPassword ? 'visibility-off' : 'visibility'}
+                      size={22}
+                      color={COLORS.textSecondary}
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
-          </View>
 
-          <Button
-            title="로그인"
-            onPress={handleLogin}
-            disabled={!canLogin}
-            loading={loggingIn}
-            style={styles.loginButton}
-          />
+            <Button
+              title="로그인"
+              onPress={handleLogin}
+              disabled={!canLogin}
+              loading={loggingIn}
+              style={styles.loginButton}
+            />
 
-          <View style={styles.linkRow}>
-            <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
-              <Text style={styles.signupLinkText}>회원가입</Text>
-            </TouchableOpacity>
-            <Text style={styles.findDivider}>|</Text>
-            <TouchableOpacity onPress={handleFindEmail}>
-              <Text style={styles.signupLinkText}>아이디 찾기</Text>
-            </TouchableOpacity>
-            <Text style={styles.findDivider}>|</Text>
-            <TouchableOpacity onPress={handleFindPassword}>
-              <Text style={styles.signupLinkText}>비밀번호 찾기</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.divider} />
-
-          <TouchableOpacity
-            activeOpacity={0.9}
-            style={styles.googleButton}
-            onPress={handleGoogleNativeLogin}
-            disabled={socialLoading !== null || loggingIn}
-          >
-            <View style={styles.googleIcon}>
-              <GoogleMark />
+            <View style={styles.linkRow}>
+              <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
+                <Text style={styles.signupLinkText}>회원가입</Text>
+              </TouchableOpacity>
+              <Text style={styles.findDivider}>|</Text>
+              <TouchableOpacity onPress={handleFindEmail}>
+                <Text style={styles.signupLinkText}>아이디 찾기</Text>
+              </TouchableOpacity>
+              <Text style={styles.findDivider}>|</Text>
+              <TouchableOpacity onPress={handleFindPassword}>
+                <Text style={styles.signupLinkText}>비밀번호 찾기</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.googleText}>
-              {socialLoading === 'google' ? 'Google 로그인 중...' : 'Google로 로그인'}
-            </Text>
-          </TouchableOpacity>
 
-          <TouchableOpacity
-            activeOpacity={0.9}
-            style={styles.kakaoButton}
-            onPress={handleKakaoLogin}
-            disabled={socialLoading !== null || loggingIn}
-          >
-            <View style={styles.kakaoIcon}>
-              <KakaoMark />
-            </View>
-            <Text style={styles.kakaoText}>
-              {socialLoading === 'kakao' ? '카카오 로그인 중...' : '카카오로 로그인'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+            <View style={styles.divider} />
+
+            <TouchableOpacity
+              activeOpacity={0.9}
+              style={styles.googleButton}
+              onPress={handleGoogleNativeLogin}
+              disabled={socialLoading !== null || loggingIn}
+            >
+              <View style={styles.googleIcon}>
+                <GoogleMark />
+              </View>
+              <Text style={styles.googleText}>
+                {socialLoading === 'google' ? 'Google 로그인 중...' : 'Google로 로그인'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.9}
+              style={styles.kakaoButton}
+              onPress={handleKakaoLogin}
+              disabled={socialLoading !== null || loggingIn}
+            >
+              <View style={styles.kakaoIcon}>
+                <KakaoMark />
+              </View>
+              <Text style={styles.kakaoText}>
+                {socialLoading === 'kakao' ? '카카오 로그인 중...' : '카카오로 로그인'}
+              </Text>
+            </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -566,6 +575,9 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  contentScroll: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 24,
   },

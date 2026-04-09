@@ -156,11 +156,11 @@ export default function ProfileScreen() {
           if (mounted) setMonthlyDietScore(null);
           return;
         }
-        const [n, dietScore] = await Promise.all([
+        const [n, dietScore, mealPlanN] = await Promise.all([
           getMonthlyScanCountRemote().catch(() => null),
           getMonthlyAverageDietScoreRemote().catch(() => null),
+          getMonthlyMealPlanCountRemote().catch(() => null),
         ]);
-        const mealPlanN = await getMonthlyMealPlanCountRemote().catch(() => null);
         if (!mounted) return;
         if (typeof n === 'number') setMonthlyScanCount(n);
         if (typeof mealPlanN === 'number') setMonthlyMealPlanCount(mealPlanN);
@@ -258,7 +258,7 @@ export default function ProfileScreen() {
   ];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header Profile Section */}
         <View style={styles.header}>
@@ -315,6 +315,7 @@ export default function ProfileScreen() {
             </Text>
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>이번 달 남은 식단 생성</Text>
           </Card>
+
         </View>
 
         <View style={styles.quickActionRow}>

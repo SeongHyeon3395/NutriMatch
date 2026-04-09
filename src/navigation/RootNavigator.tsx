@@ -8,9 +8,11 @@ import { isSupabaseConfigured, supabase } from '../services/supabaseClient';
 import { ensureMyAppUserRemote, fetchMyAppUser } from '../services/userData';
 import { retryAsync } from '../services/retry';
 import { useUserStore } from '../store/userStore';
+import { useAppStartupStore } from '../store/appStartupStore';
 import { useAppAlert } from '../components/ui/AppAlert';
 import { SplashOverlay } from '../components/SplashOverlay';
 import { consumeUserInitiatedSignOut } from '../services/authSignals';
+import { preloadStartupSnapshot } from '../services/startupBootstrap';
 
 // Screens
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -72,6 +74,7 @@ function isLikelyRefreshTokenExpiredError(err: any): boolean {
 
 export default function RootNavigator() {
   const setProfile = useUserStore(state => state.setProfile);
+  const setFoodLogs = useUserStore(state => state.setFoodLogs);
   const clearAllData = useUserStore(state => state.clearAllData);
   const { alert } = useAppAlert();
   const [booting, setBooting] = useState(true);
@@ -180,6 +183,7 @@ export default function RootNavigator() {
         await notifyNetworkIssueOnce();
 
         if (!isSupabaseConfigured || !supabase) {
+          useAppStartupStore.getState().clear();
           if (mounted) resetTo('Login');
           return;
         }
@@ -220,6 +224,7 @@ export default function RootNavigator() {
           }
         }
         if (!session) {
+          useAppStartupStore.getState().clear();
           await notifyNetworkIssueOnce();
           if (mounted) resetTo('Login');
           return;
@@ -229,6 +234,16 @@ export default function RootNavigator() {
         try {
           const remoteProfile = await loadProfileWithProvision();
           await setProfile(remoteProfile as any);
+
+          const startupUserId = String(remoteProfile?.id || session?.user?.id || '').trim();
+          if (startupUserId) {
+            const startupSnapshot = await preloadStartupSnapshot(startupUserId);
+            useAppStartupStore.getState().setSnapshot(startupSnapshot);
+            if (startupSnapshot.foodLogs.length > 0) {
+              await setFoodLogs(startupSnapshot.foodLogs);
+            }
+          }
+
           if (mounted) {
             if (remoteProfile?.onboardingCompleted) {
               resetTo('MainTab', { screen: 'Scan' });
@@ -253,6 +268,7 @@ export default function RootNavigator() {
       if (!session) {
         // 수동 로그아웃이면 안내 문구 없이 로그인으로
         const userInitiated = consumeUserInitiatedSignOut();
+        useAppStartupStore.getState().clear();
         try {
           await clearAllData();
         } catch {
@@ -282,6 +298,16 @@ export default function RootNavigator() {
       try {
         const remoteProfile = await loadProfileWithProvision();
         await setProfile(remoteProfile as any);
+
+        const startupUserId = String(remoteProfile?.id || session?.user?.id || '').trim();
+        if (startupUserId) {
+          const startupSnapshot = await preloadStartupSnapshot(startupUserId);
+          useAppStartupStore.getState().setSnapshot(startupSnapshot);
+          if (startupSnapshot.foodLogs.length > 0) {
+            await setFoodLogs(startupSnapshot.foodLogs);
+          }
+        }
+
         if (remoteProfile?.onboardingCompleted) {
           resetTo('MainTab', { screen: 'Scan' });
         } else {
@@ -296,7 +322,7 @@ export default function RootNavigator() {
       mounted = false;
       sub?.data?.subscription?.unsubscribe?.();
     };
-  }, [alert, clearAllData, networkNoticeShown, notifySessionExpiredAndGoLogin, setProfile]);
+  }, [alert, clearAllData, networkNoticeShown, notifySessionExpiredAndGoLogin, setFoodLogs, setProfile]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {

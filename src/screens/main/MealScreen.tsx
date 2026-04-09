@@ -3,6 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
+  KeyboardAvoidingView,
   ScrollView,
   TouchableOpacity,
   TextInput,
@@ -30,6 +31,7 @@ import type { MealPlanDay, MealPlanResult, MealPlanMode } from '../../types/meal
 import type { MealPlanLog } from '../../services/userData';
 import { getPlanLimits } from '../../services/plans';
 import { useTheme } from '../../theme/ThemeProvider';
+import { useAppStartupStore } from '../../store/appStartupStore';
 
 export default function MealScreen() {
   const navigation = useNavigation<any>();
@@ -164,6 +166,16 @@ export default function MealScreen() {
       if (!mounted) return;
       setIsLoggedIn(Boolean(userId));
 
+      const startup = useAppStartupStore.getState();
+      const canUseStartupData = Boolean(userId && startup.initialized && startup.userId === userId);
+
+      if (canUseStartupData) {
+        setUsedMealPlanCount(typeof startup.monthlyMealPlanUsed === 'number' ? startup.monthlyMealPlanUsed : null);
+        setMealPlanLogs(Array.isArray(startup.mealPlanLogs) ? startup.mealPlanLogs : []);
+        setIsLoadingLogs(false);
+        return;
+      }
+
       // Load monthly quota usage (logged-in only)
       if (userId) {
         try {
@@ -187,6 +199,10 @@ export default function MealScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
+      const startup = useAppStartupStore.getState();
+      const currentUserId = String(profile?.id || '').trim();
+      const canUseStartupData = Boolean(currentUserId && startup.initialized && startup.userId === currentUserId);
+      if (canUseStartupData) return;
       void reloadMealPlanLogs();
     }, [profile?.id])
   );
@@ -609,7 +625,8 @@ export default function MealScreen() {
         <Text style={[styles.headerTitle, { color: colors.text }]}>AI 식단</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>목표/식단/알레르기를 반영해 식단을 짜드려요</Text>
 
         {/* Main Action Card */}
@@ -733,7 +750,7 @@ export default function MealScreen() {
           transparent
           onRequestClose={() => setIsPantryPickerOpen(false)}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.surfaceMuted }]}>
               <View style={styles.modalHeader}>
                 <Text style={[styles.modalTitle, { color: colors.text }]}>내 음식 선택</Text>
@@ -892,7 +909,7 @@ export default function MealScreen() {
                 <Button title="완료" onPress={() => setIsPantryPickerOpen(false)} style={styles.modalDoneButton} />
               </View>
             </View>
-          </View>
+            </KeyboardAvoidingView>
         </Modal>
 
         {result ? (
@@ -983,6 +1000,7 @@ export default function MealScreen() {
           )}
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

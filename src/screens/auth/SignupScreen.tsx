@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   StatusBar,
@@ -171,8 +173,9 @@ export default function SignupScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.form}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <View style={styles.form}>
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>아이디</Text>
             <View style={styles.usernameRow}>
@@ -351,8 +354,9 @@ export default function SignupScreen() {
             loading={submitting}
             style={{ width: '100%' }}
           />
-        </View>
-      </ScrollView>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {submitting ? (
         <View style={styles.loadingOverlay} pointerEvents="auto">

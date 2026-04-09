@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   AppState,
   type AppStateStatus,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   PermissionsAndroid,
@@ -232,8 +233,13 @@ export default function PrivacySecurityScreen() {
             <View style={styles.confirmBackdrop} />
           </Pressable>
 
-          <View style={styles.confirmCenter} pointerEvents="box-none">
-            <Card style={styles.confirmCard}>
+          <KeyboardAvoidingView
+            style={styles.confirmCenterWrap}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+          >
+            <View style={styles.confirmCenter} pointerEvents="box-none">
+              <Card style={styles.confirmCard}>
               <View style={styles.confirmTitleRow}>
                 <Text style={[styles.confirmTitle, { color: colors.text }]}>계정 삭제</Text>
                 <TouchableOpacity
@@ -285,8 +291,9 @@ export default function PrivacySecurityScreen() {
                   style={{ flex: 1 }}
                 />
               </View>
-            </Card>
-          </View>
+              </Card>
+            </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -324,7 +331,7 @@ export default function PrivacySecurityScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Card style={styles.card}>
           <View style={styles.cardHeaderRow}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>개인정보 처리방침 (필수)</Text>
@@ -431,6 +438,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.text,
     opacity: 0.4,
+  },
+  confirmCenterWrap: {
+    flex: 1,
   },
   confirmCenter: {
     flex: 1,

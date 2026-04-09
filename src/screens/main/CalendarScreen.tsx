@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
@@ -489,7 +489,8 @@ export default function CalendarScreen() {
         <Text style={[styles.headerTitle, { color: colors.text }]}>캘린더</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
         <Card style={styles.calendarCard} variant="elevated">
           <View style={styles.monthHeader}>
@@ -656,6 +657,7 @@ export default function CalendarScreen() {
           )}
         </Card>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

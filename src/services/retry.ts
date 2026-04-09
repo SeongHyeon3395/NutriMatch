@@ -1,5 +1,5 @@
 export async function wait(ms: number) {
-  await new Promise((resolve) => setTimeout(resolve, ms));
+  await new Promise<void>((resolve) => setTimeout(() => resolve(), ms));
 }
 
 export async function retryAsync<T>(factory: () => Promise<T>, options?: { retries?: number; delayMs?: number }) {

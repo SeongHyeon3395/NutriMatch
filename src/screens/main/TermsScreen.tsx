@@ -109,6 +109,13 @@ export default function TermsScreen() {
 
         <Text style={[styles.sectionTitle, { color: colors.text }]}>제13조 (문의처)</Text>
         <Text style={[styles.paragraph, { color: colors.textSecondary }]}>이메일: {contactEmail}</Text>
+
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>제14조 (커뮤니티 이용안내 및 동의)</Text>
+        <Text style={[styles.paragraph, { color: colors.textSecondary }]}>
+          커뮤니티 기능 이용 시, 이용자는 커뮤니티 운영정책(금지행위, 신고·제재 기준, 권리침해 금지 등)에 대한 안내를 확인하고 동의해야
+          합니다. 계정별 최초 1회 동의가 완료되어야 커뮤니티 작성/댓글 기능을 이용할 수 있으며, 미동의 시 해당 기능 이용이 제한됩니다.
+          운영자는 안전한 서비스 운영을 위해 커뮤니티 정책을 변경할 수 있고, 중대한 변경 시 앱 내 공지합니다.
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );

@@ -9,6 +9,7 @@ import { useTheme } from '../theme/ThemeProvider';
 // Screens
 import ScanScreen from '../screens/main/ScanScreen';
 import MealScreen from '../screens/main/MealScreen';
+import CommunityScreen from '../screens/main/CommunityScreen';
 import CalendarScreen from '../screens/main/CalendarScreen.tsx';
 import ProfileScreen from '../screens/main/ProfileScreen';
 
@@ -16,7 +17,7 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 
 export default function MainTabNavigator() {
   const insets = useSafeAreaInsets();
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
 
   return (
     <Tab.Navigator
@@ -25,18 +26,21 @@ export default function MainTabNavigator() {
         animation: 'none',
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textGray,
+        sceneStyle: {
+          backgroundColor: colors.backgroundGray,
+        },
         tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopWidth: 1,
-          borderTopColor: colors.border,
+          backgroundColor: colors.backgroundGray,
+          borderTopWidth: 0,
+          borderTopColor: 'transparent',
           height: MAIN_SHORTCUT_BAR_HEIGHT + insets.bottom,
           paddingTop: MAIN_SHORTCUT_BAR_TOP_PADDING,
           paddingBottom: MAIN_SHORTCUT_BAR_BOTTOM_PADDING + insets.bottom,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: -6 },
-          shadowOpacity: isDark ? 0.08 : 0,
-          shadowRadius: isDark ? 16 : 0,
-          elevation: isDark ? 10 : 0,
+          shadowColor: 'transparent',
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: 0,
+          shadowRadius: 0,
+          elevation: 0,
         },
         tabBarItemStyle: {
           paddingVertical: 2,
@@ -52,6 +56,19 @@ export default function MainTabNavigator() {
         component={ScanScreen}
         options={{
           tabBarLabel: '스캔',
+          tabBarStyle: {
+            backgroundColor: colors.backgroundGray,
+            borderTopWidth: 0,
+            borderTopColor: 'transparent',
+            height: MAIN_SHORTCUT_BAR_HEIGHT + insets.bottom,
+            paddingTop: MAIN_SHORTCUT_BAR_TOP_PADDING,
+            paddingBottom: MAIN_SHORTCUT_BAR_BOTTOM_PADDING + insets.bottom,
+            shadowColor: 'transparent',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0,
+            shadowRadius: 0,
+            elevation: 0,
+          },
           tabBarIcon: ({ color }) => <AppIcon name="document-scanner" color={color} size={24} />,
         }}
       />
@@ -61,6 +78,14 @@ export default function MainTabNavigator() {
         options={{
           tabBarLabel: '식단',
           tabBarIcon: ({ color }) => <AppIcon name="restaurant" color={color} size={24} />,
+        }}
+      />
+      <Tab.Screen
+        name="Community"
+        component={CommunityScreen}
+        options={{
+          tabBarLabel: '피드',
+          tabBarIcon: ({ color }) => <AppIcon name="forum" color={color} size={24} />,
         }}
       />
       <Tab.Screen

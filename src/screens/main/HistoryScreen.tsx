@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Image, useWindowDimensions } from 'react-native';
+import { KeyboardAvoidingView, Platform, View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Image, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useNetInfo } from '@react-native-community/netinfo';
@@ -359,7 +359,8 @@ export default function HistoryScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]}> 
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]} edges={['top', 'left', 'right']}> 
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={[styles.topBar, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         {navigation?.canGoBack?.() ? (
           <TouchableOpacity
@@ -439,6 +440,7 @@ export default function HistoryScreen() {
         data={historyData}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={[styles.listContent, { padding: isCompact ? 12 : 16 }]}
         ListEmptyComponent={renderEmpty}
         showsVerticalScrollIndicator={false}
@@ -448,6 +450,7 @@ export default function HistoryScreen() {
         windowSize={7}
         updateCellsBatchingPeriod={50}
       />
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
