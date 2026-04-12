@@ -1,5 +1,4 @@
 import { BASE_URL, ENDPOINTS, buildSupabaseHeaders } from '../config';
-import { Platform } from 'react-native';
 import { fetchJson, fetchWithTimeout } from './http';
 import { supabase } from './supabaseClient';
 

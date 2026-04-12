@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  BackHandler,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -198,7 +197,7 @@ export default function BodyTrackerScreen() {
     [navigation]
   );
 
-  const refreshRemoteTrackerData = useCallback(async (userId: string) => {
+  const refreshRemoteTrackerData = useCallback(async () => {
     const [remoteBody, remoteFood, chatToken] = await Promise.all([
       retryAsync(() => listBodyLogsRemote(90), { retries: 1, delayMs: 700 }).catch(() => null),
       retryAsync(() => listFoodLogsRemote(40), { retries: 1, delayMs: 700 }).catch(() => null),
@@ -236,13 +235,13 @@ export default function BodyTrackerScreen() {
         setSessionUserId(userId);
 
         if (userId) {
-          const firstLoad = await refreshRemoteTrackerData(userId).catch(() => null);
+          const firstLoad = await refreshRemoteTrackerData().catch(() => null);
           if (!alive) return;
 
           if (!firstLoad?.hasBody || !firstLoad?.hasFood) {
             retryTimer = setTimeout(() => {
               if (!alive) return;
-              void refreshRemoteTrackerData(userId).catch(() => {
+              void refreshRemoteTrackerData().catch(() => {
                 // ignore retry failure and keep current state
               });
             }, 900);
@@ -486,18 +485,6 @@ export default function BodyTrackerScreen() {
   const handleBackPress = () => {
     resetToMainTab('Profile');
   };
-
-  useFocusEffect(
-    useCallback(() => {
-      const onBack = () => {
-        handleBackPress();
-        return true;
-      };
-
-      const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
-      return () => sub.remove();
-    }, [resetToMainTab])
-  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]} edges={['top', 'left', 'right']}>

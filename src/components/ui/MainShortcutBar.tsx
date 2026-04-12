@@ -3,7 +3,6 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { SPACING } from '../../constants/colors';
 import { useTheme } from '../../theme/ThemeProvider';
 import { AppIcon } from './AppIcon';
 
@@ -14,6 +13,7 @@ export const MAIN_SHORTCUT_BAR_BOTTOM_PADDING = 8;
 const ITEMS = [
   { key: 'Scan', label: '스캔', icon: 'document-scanner' as const },
   { key: 'Meal', label: '식단', icon: 'restaurant' as const },
+  { key: 'Community', label: '피드', icon: 'forum' as const },
   { key: 'Calendar', label: '캘린더', icon: 'calendar-today' as const },
   { key: 'Profile', label: '프로필', icon: 'person' as const },
 ] as const;
@@ -72,7 +72,7 @@ export function MainShortcutBar() {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    borderTopWidth: 1,
+    borderTopWidth: 1.5,
     paddingHorizontal: 0,
   },
   item: {

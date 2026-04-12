@@ -107,21 +107,6 @@ async function sha256Hex(input: string): Promise<string> {
     .join('');
 }
 
-function readPromptFromEnv(name: string, b64Name: string): string {
-  const direct = (Deno.env.get(name) || '').trim();
-  if (direct) return direct;
-  const b64 = (Deno.env.get(b64Name) || '').trim();
-  if (!b64) return '';
-  try {
-    // Decode base64 as UTF-8 (atob returns a binary string)
-    const bin = atob(b64);
-    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
-  } catch {
-    return '';
-  }
-}
-
 function readPromptFromEnvWithSource(
   name: string,
   b64Name: string,
@@ -367,8 +352,6 @@ function buildGenericUserAnalysisFallback(params: {
 
   const calories = safeNumber(macros.calories);
   const protein = safeNumber(macros.protein_g);
-  const carbs = safeNumber(macros.carbs_g);
-  const fat = safeNumber(macros.fat_g);
   const sugar = safeNumber(macros.sugar_g);
   const sodium = safeNumber(macros.sodium_mg);
 

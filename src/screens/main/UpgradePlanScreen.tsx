@@ -10,7 +10,7 @@ import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useUserStore } from '../../store/userStore';
-import { getPlanLabel, normalizePlanId, PLAN_LIMITS, type AppPlanId } from '../../services/plans';
+import { getPlanLabel, normalizePlanId, type AppPlanId } from '../../services/plans';
 import { useTheme } from '../../theme/ThemeProvider';
 
 type PlanFeature = {

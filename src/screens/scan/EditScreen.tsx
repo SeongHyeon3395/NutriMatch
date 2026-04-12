@@ -4,7 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { Button } from '../../components/ui/Button';
-import { COLORS, RADIUS, SPACING } from '../../constants/colors';
+import { RADIUS, SPACING } from '../../constants/colors';
 import { useTheme } from '../../theme/ThemeProvider';
 
 function tryGetHaptics(): null | { trigger: (type: string, options?: any) => void } {

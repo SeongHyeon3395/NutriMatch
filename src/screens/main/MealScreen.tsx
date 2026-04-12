@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -122,9 +122,6 @@ export default function MealScreen() {
 
   const profile = useUserStore(state => state.profile);
   const monthlyMealPlanLimit = getPlanLimits(profile?.plan_id).monthlyMealPlanLimit;
-  const isMaster =
-    (profile as any)?.plan_id === 'master' ||
-    profile?.username === 'master';
 
   const [usedMealPlanCount, setUsedMealPlanCount] = useState<number | null>(null);
   const [mode, setMode] = useState<MealPlanMode>('pantry');
@@ -212,7 +209,7 @@ export default function MealScreen() {
 
   const displayName = String(profile?.nickname || (profile as any)?.name || profile?.username || '사용자');
 
-  const sanitizePantrySelection = (items: string[]) => {
+  const sanitizePantrySelection = useCallback((items: string[]) => {
     const normalize = (raw: string) =>
       raw
         .replace(/[\u0000-\u001F\u007F]/g, ' ')
@@ -257,7 +254,7 @@ export default function MealScreen() {
 
     // Selection is limited to 20 items.
     return Array.from(new Set(cleaned)).slice(0, 20);
-  };
+  }, []);
 
   const normalizeSearchKey = (v: string) =>
     String(v || '')

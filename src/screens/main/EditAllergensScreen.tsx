@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -24,6 +24,7 @@ export default function EditAllergensScreen() {
   );
   const [customAllergen, setCustomAllergen] = useState('');
   const [saving, setSaving] = useState(false);
+  const scrollRef = useRef<ScrollView | null>(null);
 
   const toggleAllergen = (allergen: string) => {
     setSelectedAllergens(prev => {
@@ -41,6 +42,12 @@ export default function EditAllergensScreen() {
       return exists ? prev : [...prev, next];
     });
     setCustomAllergen('');
+  };
+
+  const handleInputFocus = () => {
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 80);
   };
 
   const handleSave = async () => {
@@ -68,8 +75,8 @@ export default function EditAllergensScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}>
+        <ScrollView ref={scrollRef} contentContainerStyle={[styles.content, { paddingBottom: SPACING.lg + 28 }]} keyboardShouldPersistTaps="always" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} showsVerticalScrollIndicator={false}>
           <Card style={styles.card}>
             <View style={styles.titleRow}>
               <View style={[styles.titleIconWrap, { backgroundColor: colors.blue50 }]}>
@@ -85,6 +92,7 @@ export default function EditAllergensScreen() {
                 placeholderTextColor={colors.textGray}
                 value={customAllergen}
                 onChangeText={setCustomAllergen}
+                onFocus={handleInputFocus}
                 returnKeyType="done"
                 onSubmitEditing={addCustomAllergen}
               />
@@ -100,6 +108,11 @@ export default function EditAllergensScreen() {
                 <AppIcon name="check-circle" size={15} color={colors.primary} />
               </View>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>추가된 알레르기 {selectedAllergens.length}개</Text>
+              {selectedAllergens.length > 0 && (
+                <TouchableOpacity onPress={() => setSelectedAllergens([])} style={styles.clearAllButton}>
+                  <Text style={[styles.clearAllText, { color: colors.danger }]}>모두 지우기</Text>
+                </TouchableOpacity>
+              )}
             </View>
             <View style={styles.tags}>
               {selectedAllergens.length === 0 ? (
@@ -167,6 +180,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  clearAllButton: {
+    marginLeft: 'auto',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  clearAllText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   titleIconWrap: {
     width: 22,

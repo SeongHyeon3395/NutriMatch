@@ -21,6 +21,7 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { RootStackParamList } from '../../navigation/types';
 import { checkUsername, signupDevice } from '../../services/api';
+import { validatePublicNamePolicy } from '../../services/namePolicy';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Signup'>;
 
@@ -76,9 +77,10 @@ export default function SignupScreen() {
 
   const handleCheckUsername = async () => {
     const v = username.trim();
-    if (!v) {
+    const usernamePolicy = validatePublicNamePolicy(v, '아이디');
+    if (!usernamePolicy.ok) {
       setUsernameCheckStatus('error');
-      setUsernameCheckMessage('아이디를 입력해주세요.');
+      setUsernameCheckMessage(usernamePolicy.message);
       return;
     }
 
@@ -92,7 +94,7 @@ export default function SignupScreen() {
         setUsernameCheckMessage('사용 가능한 아이디예요.');
       } else {
         setUsernameCheckStatus('taken');
-        setUsernameCheckMessage('중복되는 아이디예요.');
+        setUsernameCheckMessage(res?.message || '중복되거나 사용할 수 없는 아이디예요.');
       }
     } catch (e: any) {
       setUsernameCheckStatus('error');
@@ -102,8 +104,9 @@ export default function SignupScreen() {
 
   const handleSubmit = async () => {
     if (submitting) return;
-    if (!usernameValid) {
-      alert({ title: '아이디 입력', message: '아이디를 입력해주세요.' });
+    const usernamePolicy = validatePublicNamePolicy(username.trim(), '아이디');
+    if (!usernamePolicy.ok) {
+      alert({ title: '아이디 확인', message: usernamePolicy.message });
       return;
     }
     if (!usernameAvailable) {
@@ -121,8 +124,9 @@ export default function SignupScreen() {
       alert({ title: '비밀번호 확인', message: '비밀번호가 일치하지 않습니다.' });
       return;
     }
-    if (!nicknameValid) {
-      alert({ title: '닉네임 입력', message: '앱에서 사용할 닉네임을 입력해주세요.' });
+    const nicknamePolicy = validatePublicNamePolicy(nickname.trim(), '닉네임');
+    if (!nicknamePolicy.ok) {
+      alert({ title: '닉네임 확인', message: nicknamePolicy.message });
       return;
     }
     if (!agreeRequired) {

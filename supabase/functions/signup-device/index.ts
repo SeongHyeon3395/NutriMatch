@@ -11,6 +11,38 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
+const RESERVED_TERMS = [
+  '운영자',
+  '관리자',
+  '매니저',
+  '운영팀',
+  '운영진',
+  '관리팀',
+  '뉴핏',
+  'newfit',
+  'admin',
+  'administrator',
+  'manager',
+  'moderator',
+  'staff',
+  'official',
+  'support',
+  'master',
+] as const;
+
+function normalizeForReservedCheck(value: string) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[\s._-]+/g, '')
+    .trim();
+}
+
+function hasReservedTerm(value: string) {
+  const normalized = normalizeForReservedCheck(value);
+  if (!normalized) return false;
+  return RESERVED_TERMS.some((term) => normalized.includes(normalizeForReservedCheck(term)));
+}
+
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
     status,
@@ -31,12 +63,6 @@ function usernameToEmail(username: string) {
 function toOptionalText(value: unknown) {
   const v = String(value ?? '').trim();
   return v ? v : null;
-}
-
-function toOptionalInt(value: unknown) {
-  if (value === null || value === undefined || value === '') return null;
-  const n = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
-  return Number.isFinite(n) ? n : null;
 }
 
 serve(async (req: Request) => {
@@ -85,6 +111,12 @@ serve(async (req: Request) => {
 
     if (!username) return json(400, { ok: false, message: '아이디가 필요합니다.' });
     if (!nickname) return json(400, { ok: false, message: '닉네임이 필요합니다.' });
+    if (hasReservedTerm(username)) {
+      return json(400, { ok: false, message: '혼란을 줄 수 있는 아이디(운영자/관리자/매니저/뉴핏 등)은 사용할 수 없어요.' });
+    }
+    if (hasReservedTerm(nickname)) {
+      return json(400, { ok: false, message: '혼란을 줄 수 있는 닉네임(운영자/관리자/매니저/뉴핏 등)은 사용할 수 없어요.' });
+    }
     if (!isStrongPassword(password)) {
       return json(400, { ok: false, message: '비밀번호는 8자 이상, 특수문자를 포함해야 합니다.' });
     }

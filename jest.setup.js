@@ -1,7 +1,6 @@
 // Jest setup for React Native project
 
 jest.mock('react-native-reanimated', () => {
-  const React = require('react');
   const { View } = require('react-native');
 
   const passthrough = (v) => v;

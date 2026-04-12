@@ -1,11 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { BackHandler, View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Modal, LayoutChangeEvent } from 'react-native';
+import { BackHandler, View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { COLORS } from '../../constants/colors';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
-import { Badge } from '../../components/ui/Badge';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { useAppToast } from '../../components/ui/AppToast';
@@ -72,7 +71,6 @@ export default function ResultScreen() {
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showTagsModal, setShowTagsModal] = useState(false);
-  const [imageBox, setImageBox] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
   const { alert, dismiss } = useAppAlert();
   const { toast } = useAppToast();
@@ -86,8 +84,6 @@ export default function ResultScreen() {
     Array.isArray(arr) ? arr.filter((x: any) => typeof x === 'string' && x.trim()) : [];
 
   const ua: any = analysis.userAnalysis || ensureUserAnalysis(analysis, profile);
-  const pros = listOrEmpty(ua?.pros);
-  const cons = listOrEmpty(ua?.cons);
   const goalFit = listOrEmpty(ua?.goalFit);
   const dietFit = listOrEmpty(ua?.dietFit);
   const healthImpact = listOrEmpty(ua?.healthImpact);
@@ -121,30 +117,18 @@ export default function ResultScreen() {
   const inlineTagsPreview = useMemo(() => inlineTags.slice(0, 4), [inlineTags]);
   const hasMoreInlineTags = inlineTags.length > 4;
 
-  const detections = Array.isArray((analysis as any).detections) ? (analysis as any).detections : [];
-  const hasDetections = detections.length > 0 && imageBox.width > 0 && imageBox.height > 0;
-
-  // The white content panel overlaps the image header by ~24px (see styles.content.marginTop).
-  // Keep overlays above that overlap so tags don't get hidden.
-  const overlayBottomGuard = 44;
-
   // NOTE: detection/ingredient chips are intentionally not shown on top of the image.
-
-  const onImageHeaderLayout = (e: LayoutChangeEvent) => {
-    const { width, height } = e.nativeEvent.layout;
-    if (width > 0 && height > 0) setImageBox({ width, height });
-  };
 
   const requestExit = () => setShowExitConfirm(true);
 
-  const goToScan = () => {
+  const goToScan = React.useCallback(() => {
     const nav: any = navigation as any;
     if (typeof nav?.reset === 'function') {
       nav.reset({ index: 0, routes: [{ name: 'MainTab', params: { screen: 'Scan' } }] });
       return;
     }
     nav.navigate?.('MainTab', { screen: 'Scan' });
-  };
+  }, [navigation]);
 
   const goToReshoot = () => {
     const nav: any = navigation as any;
@@ -223,8 +207,10 @@ export default function ResultScreen() {
   const gradeColor = (ua?.grade && (GRADE_COLORS as any)[ua.grade]) ? (GRADE_COLORS as any)[ua.grade] : colors.primary;
   const scoreText = typeof score100 === 'number' ? `${score100}점` : null;
 
-  const userAllergens = Array.isArray(profile?.allergens) ? profile!.allergens : [];
-  const allergenHits = useMemo(() => computeAllergenHits(userAllergens, analysis), [analysis, userAllergens]);
+  const allergenHits = useMemo(() => {
+    const userAllergens = Array.isArray(profile?.allergens) ? profile.allergens : [];
+    return computeAllergenHits(userAllergens, analysis);
+  }, [analysis, profile?.allergens]);
 
   const checkLines = useMemo(() => {
     // 체크: "주의"처럼 아이콘+문장 (너무 길지 않게), '추정' 류 표현 금지
@@ -530,7 +516,7 @@ export default function ResultScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header Image */}
-        <View style={styles.imageHeader} onLayout={onImageHeaderLayout}>
+        <View style={styles.imageHeader}>
           <Image source={{ uri: imageUri }} style={styles.headerImage} />
           <TouchableOpacity
             style={styles.backButton}

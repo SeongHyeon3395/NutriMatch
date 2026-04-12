@@ -13,6 +13,7 @@ import { BODY_GOALS, HEALTH_DIETS, LIFESTYLE_DIETS } from '../../constants';
 import type { BodyGoalType, HealthDietType, LifestyleDietType } from '../../types/user';
 import { getSessionUserId, insertBodyLogRemote } from '../../services/userData';
 import { useTheme } from '../../theme/ThemeProvider';
+import { validatePublicNamePolicy } from '../../services/namePolicy';
 
 type EditRowProps = {
   label: string;
@@ -100,8 +101,9 @@ export default function EditPersonalInfoScreen() {
     }
 
     const nextNickname = nicknameDraft.trim();
-    if (!nextNickname) {
-      alert({ title: '닉네임 입력', message: '닉네임을 입력해주세요.' });
+    const nicknamePolicy = validatePublicNamePolicy(nextNickname, '닉네임');
+    if (!nicknamePolicy.ok) {
+      alert({ title: '닉네임 확인', message: nicknamePolicy.message });
       return;
     }
 

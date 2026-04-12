@@ -7,7 +7,6 @@ import { COLORS, RADIUS, SPACING } from '../../constants/colors';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { AppIcon } from '../../components/ui/AppIcon';
-import { Badge } from '../../components/ui/Badge';
 import { useAppAlert } from '../../components/ui/AppAlert';
 import { ManualLogEditor } from '../../components/editor/ManualLogEditor';
 import { useUserStore } from '../../store/userStore';
@@ -19,7 +18,6 @@ import {
   insertManualMealLogRemote,
   listManualMealLogsRemote,
   updateManualMealLogRemote,
-  upsertManualMealLogsRemote,
 } from '../../services/userData';
 
 type MealType = ManualMealLog['mealType'];
@@ -162,9 +160,6 @@ export default function CalendarScreen() {
 
   const manualMealLogs = useUserStore(state => state.manualMealLogs);
   const loadManualMealLogs = useUserStore(state => state.loadManualMealLogs);
-  const addManualMealLog = useUserStore(state => state.addManualMealLog);
-  const updateManualMealLog = useUserStore(state => state.updateManualMealLog);
-  const removeManualMealLog = useUserStore(state => state.removeManualMealLog);
   const setManualMealLogs = useUserStore(state => state.setManualMealLogs);
 
   const today = useMemo(() => new Date(), []);

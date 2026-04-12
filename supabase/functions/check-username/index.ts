@@ -11,8 +11,36 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
-function usernameToEmail(username: string) {
-  return `${username}@nutrimatch.local`;
+const RESERVED_TERMS = [
+  '운영자',
+  '관리자',
+  '매니저',
+  '운영팀',
+  '운영진',
+  '관리팀',
+  '뉴핏',
+  'newfit',
+  'admin',
+  'administrator',
+  'manager',
+  'moderator',
+  'staff',
+  'official',
+  'support',
+  'master',
+] as const;
+
+function normalizeForReservedCheck(value: string) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[\s._-]+/g, '')
+    .trim();
+}
+
+function hasReservedTerm(value: string) {
+  const normalized = normalizeForReservedCheck(value);
+  if (!normalized) return false;
+  return RESERVED_TERMS.some((term) => normalized.includes(normalizeForReservedCheck(term)));
 }
 
 function json(status: number, body: unknown) {
@@ -38,13 +66,19 @@ serve(async (req: Request) => {
     const username = String(body?.username ?? '').trim();
 
     if (!username) return json(400, { ok: false, message: '아이디가 필요합니다.' });
+    if (hasReservedTerm(username)) {
+      return json(200, {
+        ok: true,
+        message: '혼란을 줄 수 있는 아이디(운영자/관리자/매니저/뉴핏 등)은 사용할 수 없어요.',
+        data: { available: false },
+      });
+    }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // 현재 정책: app_users.username 기준으로 사용 가능 여부 판단
     // (Auth email은 아이디로부터 결정적으로 생성되며, signup-device가 항상 app_users에 기록합니다.)
     // 필요 시 email = usernameToEmail(username) 도 함께 저장/검증하도록 확장 가능
-    const _email = usernameToEmail(username);
 
     const { data, error } = await supabase.from('app_users').select('id').eq('username', username).maybeSingle();
 

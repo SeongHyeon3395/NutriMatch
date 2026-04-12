@@ -126,7 +126,7 @@ export default function ScanScreen() {
     });
   }, [alert]);
 
-  const ensureScanQuotaOrAlert = async () => {
+  const ensureScanQuotaOrAlert = useCallback(async () => {
     const userId = await getSessionUserId().catch(() => null);
     if (!userId) {
       alert({
@@ -149,7 +149,7 @@ export default function ScanScreen() {
       // 카운트 조회 실패 시에는 보수적으로 막지 않음
     }
     return true;
-  };
+  }, [alert, monthlyScanLimit]);
 
   const refreshMonthlyCount = useCallback(async () => {
     const userId = await getSessionUserId().catch(() => null);
@@ -269,13 +269,13 @@ export default function ScanScreen() {
     if (!ok) return false;
 
     return requestCameraPermissionWithAppAlert();
-  }, [isOnline, requestCameraPermissionWithAppAlert]);
+  }, [alert, ensureScanQuotaOrAlert, isOnline, requestCameraPermissionWithAppAlert]);
 
-  const goToVerifyTutorialPhase = async () => {
+  const goToVerifyTutorialPhase = useCallback(async () => {
     // Hide scan overlay but continue tutorial on Verify screen.
     setShowTutorial(false);
     markScanTutorialVerifyPhase(sessionUserId);
-  };
+  }, [sessionUserId]);
 
   const tutorialTop = (insets.top || StatusBar.currentHeight || 0) + 8;
 
@@ -300,13 +300,6 @@ export default function ScanScreen() {
   };
 
   const showScrollHint = !didScroll && scrollContentHeight > scrollViewportHeight + 24;
-
-  const handleScan = useCallback(async () => {
-    const ready = await ensureCameraLaunchReady();
-    if (!ready) return;
-
-    navigateToCamera();
-  }, [ensureCameraLaunchReady, navigateToCamera]);
 
   const handleScanFromTutorial = useCallback(async () => {
     const ready = await ensureCameraLaunchReady();
@@ -345,7 +338,7 @@ export default function ScanScreen() {
       console.error('Gallery Error:', error);
       alert({ title: '오류', message: error?.message || '갤러리를 여는 중 문제가 발생했습니다.' });
     }
-  }, [alert, navigation, requestPhotoPermissionWithAppAlert]);
+  }, [alert, ensureScanQuotaOrAlert, isOnline, navigation, requestPhotoPermissionWithAppAlert]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundGray }]} edges={['top', 'left', 'right']}>
@@ -636,7 +629,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     paddingHorizontal: SPACING.lg,
     paddingVertical: 14,
-    borderBottomWidth: 0,
+    borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
     shadowOpacity: 0,
     shadowRadius: 0,
@@ -663,10 +656,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: SPACING.lg,
     paddingTop: 0,
-    paddingBottom: SPACING.md,
+    paddingBottom: 0,
   },
   scrollInner: {
-    paddingBottom: 16,
+    paddingBottom: 0,
   },
   topContent: { gap: SPACING.md },
 
@@ -772,7 +765,7 @@ const styles = StyleSheet.create({
 
   // Info Card
   infoCard: { padding: SPACING.lg },
-  recentCardWide: { marginHorizontal: -8 },
+  recentCardWide: { marginHorizontal: 0 },
   cardTitleRow: { 
     flexDirection: 'row', 
     alignItems: 'center', 

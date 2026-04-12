@@ -56,9 +56,6 @@ export default function PrivacySecurityScreen() {
   const { alert } = useAppAlert();
   const { colors } = useTheme();
 
-  const profile = useUserStore(state => state.profile);
-  const foodLogs = useUserStore(state => state.foodLogs);
-  const bodyLogs = useUserStore(state => state.bodyLogs);
   const loadFoodLogs = useUserStore(state => state.loadFoodLogs);
   const loadBodyLogs = useUserStore(state => state.loadBodyLogs);
   const clearAllData = useUserStore(state => state.clearAllData);

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Linking, Platform, StatusBar, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Linking, Platform, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
@@ -12,6 +12,7 @@ import { ensurePhotoLibraryPermissionWithPrompt } from '../../services/permissio
 import { CameraBottomBar, FlashMode } from '../../components/camera/CameraBottomBar';
 import { CameraPermissionView } from '../../components/camera/CameraPermissionView';
 import { TouchableOpacity } from 'react-native';
+import { useAppAlert } from '../../components/ui/AppAlert';
 
 function toFileUri(pathOrUri: string) {
   if (!pathOrUri) return '';
@@ -22,8 +23,8 @@ function toFileUri(pathOrUri: string) {
 
 export default function CameraScreen() {
   const navigation = useNavigation();
+  const { alert } = useAppAlert();
   const insets = useSafeAreaInsets();
-  const { width: screenWidth } = useWindowDimensions();
 
   const { hasPermission, requestPermission } = useCameraPermission();
   const [cameraPosition, setCameraPosition] = useState<'back' | 'front'>('back');
@@ -71,7 +72,35 @@ export default function CameraScreen() {
   const openGallery = useCallback(async () => {
     try {
       triggerHaptic();
-      const hasPhotoPermission = await ensurePhotoLibraryPermissionWithPrompt();
+      const hasPhotoPermission = await ensurePhotoLibraryPermissionWithPrompt({
+        confirmRequest: () =>
+          new Promise<boolean>((resolve) => {
+            alert({
+              title: '사진 접근 권한 필요',
+              message: '라이브러리에서 사진을 선택하려면 사진 접근 권한 허용이 필요해요. 지금 허용할까요?',
+              actions: [
+                { text: '나중에', variant: 'outline', onPress: () => resolve(false) },
+                { text: '권한 허용', variant: 'primary', onPress: () => resolve(true) },
+              ],
+            });
+          }),
+        onNeverAskAgain: ({ title, message, openSettings }) => {
+          alert({
+            title,
+            message,
+            actions: [
+              { text: '닫기', variant: 'outline' },
+              {
+                text: '설정 열기',
+                variant: 'primary',
+                onPress: () => {
+                  void openSettings();
+                },
+              },
+            ],
+          });
+        },
+      });
       if (!hasPhotoPermission) return;
       const picked = await pickPhotoFromLibrary({ quality: 0.84 });
       if (!picked?.uri) return;
@@ -79,7 +108,7 @@ export default function CameraScreen() {
     } catch {
       // silent
     }
-  }, [navigateToEdit, triggerHaptic]);
+  }, [alert, navigateToEdit, triggerHaptic]);
 
   const takePhoto = useCallback(async () => {
     if (!cameraRef.current || !device || isCapturing) return;

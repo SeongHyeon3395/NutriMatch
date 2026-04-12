@@ -1,3 +1,4 @@
+/* eslint-env node */
 // Gemini API 테스트 스크립트
 const https = require('https');
 

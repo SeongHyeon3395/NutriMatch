@@ -1,7 +1,6 @@
 import React from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { AppIcon } from '../ui/AppIcon';
-import { COLORS } from '../../constants/colors';
 import { CaptureButton } from './CaptureButton';
 
 export type FlashMode = 'auto' | 'on' | 'off';

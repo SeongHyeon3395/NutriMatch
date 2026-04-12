@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, useColorScheme, View } from 'react-native';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { useUserStore } from '../store/userStore';
 import { updateMyAppUser } from '../services/userData';
 import { runWhenIdle } from '../services/idleTask';
@@ -25,11 +25,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const profileThemeMode = useUserStore(state => state.profile?.themeMode);
   const setProfile = useUserStore(state => state.setProfile);
   const resolvedMode = mode === 'system' ? (systemScheme === 'dark' ? 'dark' : 'light') : mode;
-  const previousResolvedModeRef = useRef<'light' | 'dark'>(resolvedMode);
-  const transitionOpacity = useRef(new Animated.Value(0)).current;
-  const [transitionColor, setTransitionColor] = useState<string | null>(null);
-  const transitionAnimRef = useRef<Animated.CompositeAnimation | null>(null);
-  const transitionTokenRef = useRef(0);
+  const overlayOpacity = useRef(new Animated.Value(0)).current;
+  const [showThemeSwitchOverlay, setShowThemeSwitchOverlay] = useState(false);
+  const hideDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeAnimRef = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
     const remoteMode = profileThemeMode;
@@ -37,11 +36,36 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (remoteMode === mode) return;
 
     setModeState(remoteMode);
-  }, [profileThemeMode]);
+  }, [mode, profileThemeMode]);
 
-  const setMode = async (nextMode: ThemeMode) => {
+  const showThemeChangingOverlay = useCallback(() => {
+    if (hideDelayTimerRef.current) {
+      clearTimeout(hideDelayTimerRef.current);
+      hideDelayTimerRef.current = null;
+    }
+
+    fadeAnimRef.current?.stop();
+    setShowThemeSwitchOverlay(true);
+    overlayOpacity.setValue(1);
+
+    hideDelayTimerRef.current = setTimeout(() => {
+      fadeAnimRef.current = Animated.timing(overlayOpacity, {
+        toValue: 0,
+        duration: 420,
+        useNativeDriver: true,
+      });
+
+      fadeAnimRef.current.start(({ finished }) => {
+        if (!finished) return;
+        setShowThemeSwitchOverlay(false);
+      });
+    }, 2000);
+  }, [overlayOpacity]);
+
+  const setMode = useCallback(async (nextMode: ThemeMode) => {
     if (nextMode === mode) return;
 
+    showThemeChangingOverlay();
     setModeState(nextMode);
 
     if (profileThemeMode !== nextMode) {
@@ -56,7 +80,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         })();
       }, 150);
     }
-  };
+  }, [mode, profileThemeMode, setProfile, showThemeChangingOverlay]);
 
   const value = useMemo<ThemeContextValue>(() => ({
     mode,
@@ -64,50 +88,38 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     isDark: resolvedMode === 'dark',
     colors: resolvedMode === 'dark' ? darkColors : lightColors,
     setMode,
-  }), [mode, resolvedMode]);
+  }), [mode, resolvedMode, setMode]);
 
   useEffect(() => {
-    const previousMode = previousResolvedModeRef.current;
-    if (previousMode === resolvedMode) return;
-
-    transitionAnimRef.current?.stop();
-    transitionTokenRef.current += 1;
-    const currentToken = transitionTokenRef.current;
-
-    setTransitionColor(previousMode === 'dark' ? darkColors.background : lightColors.background);
-    transitionOpacity.setValue(1);
-
-    transitionAnimRef.current = Animated.timing(transitionOpacity, {
-      toValue: 0,
-      duration: 220,
-      easing: Easing.inOut(Easing.cubic),
-      useNativeDriver: true,
-    });
-
-    transitionAnimRef.current.start(({ finished }) => {
-      if (!finished) return;
-      if (transitionTokenRef.current !== currentToken) return;
-      setTransitionColor(null);
-    });
-
-    previousResolvedModeRef.current = resolvedMode;
-  }, [resolvedMode, transitionOpacity]);
+    return () => {
+      if (hideDelayTimerRef.current) {
+        clearTimeout(hideDelayTimerRef.current);
+        hideDelayTimerRef.current = null;
+      }
+      fadeAnimRef.current?.stop();
+    };
+  }, []);
 
   return (
     <ThemeContext.Provider value={value}>
       <View style={[styles.root, { backgroundColor: value.colors.background }]}>
         {children}
-        {transitionColor ? (
+        {showThemeSwitchOverlay ? (
           <Animated.View
-            pointerEvents="none"
+            pointerEvents="auto"
             style={[
-              styles.transitionOverlay,
+              styles.themeSwitchOverlay,
               {
-                backgroundColor: transitionColor,
-                opacity: transitionOpacity,
+                opacity: overlayOpacity,
               },
             ]}
-          />
+          >
+            <View style={[styles.themeSwitchCard, { backgroundColor: value.colors.surface, borderColor: value.colors.border }]}>
+              <ActivityIndicator color={value.colors.primary} size="small" />
+              <Text style={[styles.themeSwitchTitle, { color: value.colors.text }]}>테마 변경중</Text>
+              <Text style={[styles.themeSwitchDesc, { color: value.colors.textSecondary }]}>화면을 준비하고 있어요...</Text>
+            </View>
+          </Animated.View>
         ) : null}
       </View>
     </ThemeContext.Provider>
@@ -124,7 +136,28 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  transitionOverlay: {
+  themeSwitchOverlay: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(2, 6, 23, 0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  themeSwitchCard: {
+    minWidth: 220,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  themeSwitchTitle: {
+    marginTop: 10,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  themeSwitchDesc: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

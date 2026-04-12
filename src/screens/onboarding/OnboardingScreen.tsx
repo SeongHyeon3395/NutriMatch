@@ -2,8 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
-  Keyboard,
-  KeyboardEvent,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -11,7 +9,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -86,9 +83,13 @@ export default function OnboardingScreen() {
   const [bodyGoal, setBodyGoal] = useState<BodyGoalType | null>(() => (profile?.bodyGoal as any) ?? null);
   const [healthDiet, setHealthDiet] = useState<HealthDietType | null>(() => (profile?.healthDiet as any) ?? null);
   const [lifestyleDiet, setLifestyleDiet] = useState<LifestyleDietType | null>(() => (profile?.lifestyleDiet as any) ?? null);
-  const [selectedAllergens, setSelectedAllergens] = useState<string[]>(() => (Array.isArray(profile?.allergens) ? profile!.allergens : []));
+  const [selectedAllergens, setSelectedAllergens] = useState<string[]>(() => {
+    // 온보딩 진행 중에는 이전에 잘못 주입된 기본 알레르기 목록을 자동 로드하지 않습니다.
+    if (!profile?.onboardingCompleted) return [];
+    return Array.isArray(profile?.allergens) ? profile.allergens : [];
+  });
   const [customAllergen, setCustomAllergen] = useState('');
-  const [keyboardInset, setKeyboardInset] = useState(0);
+  const scrollRef = useRef<ScrollView | null>(null);
 
   const [currentWeightText, setCurrentWeightText] = useState(() =>
     typeof profile?.currentWeight === 'number' ? String(profile.currentWeight) : ''
@@ -114,7 +115,12 @@ export default function OnboardingScreen() {
     if (!bodyGoal && profile.bodyGoal) setBodyGoal(profile.bodyGoal as any);
     if (!healthDiet && profile.healthDiet) setHealthDiet(profile.healthDiet as any);
     if (!lifestyleDiet && profile.lifestyleDiet) setLifestyleDiet(profile.lifestyleDiet as any);
-    if (selectedAllergens.length === 0 && Array.isArray(profile.allergens) && profile.allergens.length > 0) {
+    if (
+      profile.onboardingCompleted &&
+      selectedAllergens.length === 0 &&
+      Array.isArray(profile.allergens) &&
+      profile.allergens.length > 0
+    ) {
       setSelectedAllergens(profile.allergens);
     }
 
@@ -136,7 +142,18 @@ export default function OnboardingScreen() {
         setGender(g);
       }
     }
-  }, [bodyGoal, healthDiet, lifestyleDiet, profile, selectedAllergens.length]);
+  }, [
+    ageText,
+    bodyGoal,
+    currentWeightText,
+    gender,
+    healthDiet,
+    heightText,
+    lifestyleDiet,
+    profile,
+    selectedAllergens.length,
+    targetWeightText,
+  ]);
 
   const progressAnim = useRef(new Animated.Value(25)).current;
 
@@ -147,28 +164,6 @@ export default function OnboardingScreen() {
       useNativeDriver: false,
     }).start();
   }, [progressAnim, step]);
-
-  useEffect(() => {
-    const computeInset = (e?: KeyboardEvent) => {
-      if (!e?.endCoordinates?.height) return 0;
-      return Math.max(0, e.endCoordinates.height - 34);
-    };
-
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const onShow = Keyboard.addListener(showEvent, (e) => {
-      setKeyboardInset(computeInset(e));
-    });
-    const onHide = Keyboard.addListener(hideEvent, () => {
-      setKeyboardInset(0);
-    });
-
-    return () => {
-      onShow.remove();
-      onHide.remove();
-    };
-  }, []);
 
   const handleNext = async () => {
     if (step === 1 && !bodyGoal) return;
@@ -303,6 +298,12 @@ export default function OnboardingScreen() {
     setCustomAllergen('');
   };
 
+  const handleAllergenInputFocus = () => {
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 80);
+  };
+
   const renderProgressBar = () => (
     <View style={styles.progressContainer}>
       <View style={styles.progressLabels}>
@@ -400,7 +401,7 @@ export default function OnboardingScreen() {
           맞춤 분석과 기록에 활용됩니다. 더 정확한 분석을 원하시면 가능한 범위에서 입력해주세요.
         </Text>
 
-        <View style={styles.sectionBlock}>
+        <View style={[styles.sectionBlock, styles.lastSectionBlock]}>
           <Text style={styles.sectionTitle}>신체 정보 (선택)</Text>
           <Text style={styles.sectionDesc}>입력하면 더 정확한 맞춤 분석에 도움이 됩니다. (체중은 첫 신체 기록으로 저장)</Text>
 
@@ -491,6 +492,7 @@ export default function OnboardingScreen() {
               placeholder="알레르기 성분을 입력하세요"
               value={customAllergen}
               onChangeText={setCustomAllergen}
+              onFocus={handleAllergenInputFocus}
               returnKeyType="done"
               onSubmitEditing={addCustomAllergen}
             />
@@ -528,42 +530,44 @@ export default function OnboardingScreen() {
 
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <View style={styles.mainContent}>
-            <ScrollView
-              style={styles.content}
-              contentContainerStyle={styles.scrollContent}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              showsVerticalScrollIndicator={false}
-            >
-              {renderProgressBar()}
+        <View style={styles.mainContent}>
+          <ScrollView
+            ref={scrollRef}
+            style={styles.content}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: SPACING.sm + 8 },
+            ]}
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            showsVerticalScrollIndicator={false}
+          >
+            {renderProgressBar()}
 
-              {step === 1 && renderStep1()}
-              {step === 2 && renderStep2()}
-              {step === 3 && renderStep3()}
-              {step === 4 && renderStep4()}
-            </ScrollView>
+            {step === 1 && renderStep1()}
+            {step === 2 && renderStep2()}
+            {step === 3 && renderStep3()}
+            {step === 4 && renderStep4()}
+          </ScrollView>
 
-            <View style={[styles.footer, keyboardInset > 0 && { marginBottom: Math.min(28, keyboardInset) }]}>
-              {step > 1 && (
-                <Button variant="outline" onPress={handleBack} style={styles.backButton}>
-                  이전
-                </Button>
-              )}
-              <Button
-                style={styles.nextButton}
-                disabled={(step === 1 && !bodyGoal) || (step === 2 && !healthDiet) || (step === 3 && !lifestyleDiet)}
-                onPress={handleNext}
-              >
-                {step === 4 ? '완료' : '다음'}
+          <View style={styles.footer}>
+            {step > 1 && (
+              <Button variant="outline" onPress={handleBack} style={styles.backButton}>
+                이전
               </Button>
-            </View>
+            )}
+            <Button
+              style={styles.nextButton}
+              disabled={(step === 1 && !bodyGoal) || (step === 2 && !healthDiet) || (step === 3 && !lifestyleDiet)}
+              onPress={handleNext}
+            >
+              {step === 4 ? '완료' : '다음'}
+            </Button>
           </View>
-        </TouchableWithoutFeedback>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -755,7 +759,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   tagText: { color: COLORS.text, fontWeight: '700', fontSize: 12 },
-  footerSpacer: { height: 8 },
+  footerSpacer: { height: 2 },
+  lastSectionBlock: { marginBottom: SPACING.xs },
 
   // Footer
   footer: {

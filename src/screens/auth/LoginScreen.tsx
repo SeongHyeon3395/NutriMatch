@@ -11,7 +11,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Linking,
 } from 'react-native';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { login as kakaoNativeLogin } from '@react-native-seoul/kakao-login';
@@ -119,41 +118,6 @@ function KakaoMark({ size = 18 }: { size?: number }) {
   );
 }
 
-function parseOAuthCallback(url: string) {
-  const parseParams = (input: string) => {
-    const out: Record<string, string> = {};
-    const raw = String(input || '').replace(/^#/, '').replace(/^\?/, '').trim();
-    if (!raw) return out;
-
-    raw.split('&').forEach(pair => {
-      const [k, ...rest] = pair.split('=');
-      if (!k) return;
-      const value = rest.join('=');
-      out[decodeURIComponent(k)] = decodeURIComponent(value || '');
-    });
-    return out;
-  };
-
-  const hashIndex = url.indexOf('#');
-  const queryIndex = url.indexOf('?');
-  const queryRaw = queryIndex >= 0
-    ? url.slice(queryIndex + 1, hashIndex >= 0 ? hashIndex : undefined)
-    : '';
-  const hashRaw = hashIndex >= 0 ? url.slice(hashIndex + 1) : '';
-
-  const query = parseParams(queryRaw);
-  const hash = parseParams(hashRaw);
-  const read = (key: string) => query[key] || hash[key] || null;
-
-  return {
-    code: read('code'),
-    accessToken: read('access_token'),
-    refreshToken: read('refresh_token'),
-    error: read('error'),
-    errorDescription: read('error_description'),
-  };
-}
-
 function getOAuthErrorMessage(err: any): string {
   const raw = String(err?.message ?? err ?? '').trim();
   const msg = raw.toLowerCase();
@@ -217,8 +181,6 @@ export default function LoginScreen() {
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-
     const appStateSub = AppState.addEventListener('change', nextState => {
       const prev = appStateRef.current;
       appStateRef.current = nextState;
@@ -231,7 +193,6 @@ export default function LoginScreen() {
     });
 
     return () => {
-      mounted = false;
       appStateSub.remove();
     };
   }, []);

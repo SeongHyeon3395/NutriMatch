@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -225,7 +226,6 @@ export default function CommunityScreen() {
   const [myLikedPosts, setMyLikedPosts] = useState<CommunityPost[]>([]);
   const [mySavedPosts, setMySavedPosts] = useState<CommunityPost[]>([]);
   const [isLoadingMyCollections, setIsLoadingMyCollections] = useState(false);
-  const [selectedHashtag, setSelectedHashtag] = useState('');
   const [noticeVisible, setNoticeVisible] = useState(false);
   const [isCheckingNotice, setIsCheckingNotice] = useState(false);
   const [noticeChoice, setNoticeChoice] = useState<'agree' | 'disagree' | null>(null);
@@ -247,11 +247,7 @@ export default function CommunityScreen() {
     ));
   }, []);
 
-  const filteredFeedPosts = useMemo(() => {
-    const tag = normalizeHashtag(selectedHashtag);
-    if (!tag) return posts;
-    return posts.filter((p) => String(p.caption || '').toLowerCase().includes(tag));
-  }, [posts, selectedHashtag]);
+  const filteredFeedPosts = useMemo(() => posts, [posts]);
 
   const loadFeed = useCallback(async (opts?: { refreshing?: boolean }) => {
     const refreshing = Boolean(opts?.refreshing);
@@ -299,20 +295,6 @@ export default function CommunityScreen() {
     }
   }, [alert]);
 
-  const applyHashtagFilter = useCallback((tag: string) => {
-    const normalized = normalizeHashtag(tag);
-    if (!normalized) return;
-    setSelectedHashtag(normalized);
-    setFeedScope('all');
-    setViewMode('list');
-    setDetailPost(null);
-    setProfileModalOpen(false);
-  }, []);
-
-  const clearHashtagFilter = useCallback(() => {
-    setSelectedHashtag('');
-  }, []);
-
   useFocusEffect(
     useCallback(() => {
       void loadFeed();
@@ -329,62 +311,73 @@ export default function CommunityScreen() {
     if (found) setDetailPost(found);
   }, [detailPost, posts]);
 
-  useEffect(() => {
-    let cancelled = false;
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      const checkTimeout = setTimeout(() => {
+        if (!alive) return;
+        setIsCheckingNotice(false);
+        setNoticeVisible(false);
+      }, 2500);
 
-    void (async () => {
-      setIsCheckingNotice(true);
-      try {
-        const seen = await AsyncStorage.getItem(COMMUNITY_NOTICE_SEEN_KEY);
-        if (!cancelled) {
+      void (async () => {
+        setIsCheckingNotice(true);
+        try {
+          const seen = await AsyncStorage.getItem(COMMUNITY_NOTICE_SEEN_KEY);
+          if (!alive) return;
           setNoticeVisible(seen !== '1');
           setNoticeChoice(null);
-        }
-      } catch {
-        if (!cancelled) {
+        } catch {
+          if (!alive) return;
           setNoticeVisible(true);
           setNoticeChoice(null);
+        } finally {
+          if (alive) {
+            clearTimeout(checkTimeout);
+            setIsCheckingNotice(false);
+          }
         }
-      } finally {
-        if (!cancelled) setIsCheckingNotice(false);
-      }
-    })();
+      })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const agreeCommunityNotice = useCallback(async () => {
-    if (noticeChoice !== 'agree') {
-      alert({ title: '동의 필요', message: '동의 체크 후 시작할 수 있습니다.' });
-      return;
-    }
-    try {
-      await AsyncStorage.setItem(COMMUNITY_NOTICE_SEEN_KEY, '1');
-    } catch {
-      // ignore and proceed
-    }
-    setNoticeVisible(false);
-  }, [alert, noticeChoice]);
+      return () => {
+        alive = false;
+        clearTimeout(checkTimeout);
+      };
+    }, [])
+  );
 
   const closeNoticeToScan = useCallback(() => {
-    void AsyncStorage.setItem(COMMUNITY_NOTICE_SEEN_KEY, '1').catch(() => {
-      // ignore
-    });
+    setIsCheckingNotice(false);
     setNoticeVisible(false);
     setNoticeChoice(null);
     navigation.navigate('Scan' as never);
   }, [navigation]);
 
-  const startWithDisagree = useCallback(() => {
-    if (noticeChoice !== 'disagree') {
-      alert({ title: '미동의 체크 필요', message: '미동의 체크 후 버튼을 누르거나, 동의하고 이용해주세요.' });
+  const confirmCommunityNotice = useCallback(() => {
+    if (!noticeChoice) {
+      alert({ title: '선택 필요', message: '동의 또는 미동의를 먼저 선택해주세요.' });
       return;
     }
+
+    if (noticeChoice === 'agree') {
+      setIsCheckingNotice(false);
+      setNoticeVisible(false);
+      setNoticeChoice(null);
+      void AsyncStorage.setItem(COMMUNITY_NOTICE_SEEN_KEY, '1').catch(() => {
+        // ignore and proceed
+      });
+      return;
+    }
+
+    setIsCheckingNotice(false);
+    setNoticeVisible(false);
+    setNoticeChoice(null);
+    void AsyncStorage.removeItem(COMMUNITY_NOTICE_SEEN_KEY).catch(() => {
+      // ignore
+    });
     alert({
       title: '이용 불가',
-      message: '미동의 시 커뮤니티를 사용할 수 없습니다.',
+      message: '미동의 상태에서는 커뮤니티를 이용할 수 없어요.',
       actions: [{ text: '확인', onPress: closeNoticeToScan }],
     });
   }, [alert, closeNoticeToScan, noticeChoice]);
@@ -478,6 +471,14 @@ export default function CommunityScreen() {
     setComposerImageUris((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  const setComposerCoverImage = useCallback((index: number) => {
+    setComposerImageUris((prev) => {
+      if (index <= 0 || index >= prev.length) return prev;
+      const picked = prev[index];
+      return [picked, ...prev.filter((_, i) => i !== index)];
+    });
+  }, []);
+
   const submitComposer = useCallback(async () => {
     if (isSavingPost) return;
 
@@ -527,6 +528,51 @@ export default function CommunityScreen() {
     setCommentsHasMore(false);
     setCommentInput('');
   }, []);
+
+  const openPostDetail = useCallback((post: CommunityPost) => {
+    setFollowListOpen(false);
+    setProfileModalOpen(false);
+    setTimeout(() => setDetailPost(post), 120);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (imageViewerOpen) {
+          setImageViewerOpen(false);
+          return true;
+        }
+        if (followListOpen) {
+          setFollowListOpen(false);
+          return true;
+        }
+        if (profileModalOpen) {
+          setProfileModalOpen(false);
+          return true;
+        }
+        if (foodImportOpen) {
+          setFoodImportOpen(false);
+          return true;
+        }
+        if (composerOpen) {
+          setComposerOpen(false);
+          return true;
+        }
+        if (detailPost) {
+          setDetailPost(null);
+          return true;
+        }
+        if (noticeVisible || isCheckingNotice) {
+          closeNoticeToScan();
+          return true;
+        }
+        return false;
+      };
+
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => sub.remove();
+    }, [closeNoticeToScan, composerOpen, detailPost, followListOpen, foodImportOpen, imageViewerOpen, isCheckingNotice, noticeVisible, profileModalOpen])
+  );
 
   const sendComment = useCallback(async () => {
     if (!detailPost || isSendingComment) return;
@@ -905,9 +951,15 @@ export default function CommunityScreen() {
         </View>
 
         {item.caption ? (
-          <TouchableOpacity activeOpacity={0.9} onPress={() => setDetailPost(item)} style={styles.captionWrap}>
-            <Text style={[styles.captionText, { color: colors.text }]}>{renderTextWithHashtags(item.caption, applyHashtagFilter)}</Text>
+          <TouchableOpacity activeOpacity={0.9} onPress={() => openPostDetail(item)} style={styles.captionWrap}>
+            <Text style={[styles.captionText, { color: colors.text }]}>{renderTextWithHashtags(item.caption)}</Text>
           </TouchableOpacity>
+        ) : null}
+
+        {item.isMine ? (
+          <View style={styles.mineBadgeWrap}>
+            <Text style={[styles.mineBadgeText, { color: colors.primary }]}>내 게시물</Text>
+          </View>
         ) : null}
 
         {renderPostImages(item)}
@@ -935,14 +987,14 @@ export default function CommunityScreen() {
         </View>
       </View>
     );
-  }, [applyHashtagFilter, colors, isDark, openComments, openPostMenu, openUserProfile, renderPostImages, toggleLike, toggleSave]);
+  }, [colors, isDark, openComments, openPostDetail, openPostMenu, openUserProfile, renderPostImages, renderTextWithHashtags, toggleLike, toggleSave]);
 
   const renderGridItem = useCallback(({ item }: { item: CommunityPost }) => {
     const thumb = item.imageUrls[0];
     return (
       <TouchableOpacity
         style={[styles.gridItem, { width: feedImageSize, height: feedImageSize, backgroundColor: colors.surfaceElevated }]}
-        onPress={() => setDetailPost(item)}
+        onPress={() => openPostDetail(item)}
       >
         {thumb ? <Image source={{ uri: thumb }} style={styles.gridItemImage} resizeMode="cover" /> : <View style={styles.gridNoImage}><AppIcon name="article" size={18} color={colors.textSecondary} /></View>}
         {item.imageUrls.length > 1 ? (
@@ -950,7 +1002,7 @@ export default function CommunityScreen() {
         ) : null}
       </TouchableOpacity>
     );
-  }, [colors.surfaceElevated, colors.textSecondary, feedImageSize]);
+  }, [colors.surfaceElevated, colors.textSecondary, feedImageSize, openPostDetail]);
 
   const profilePosts = profileData?.posts ?? [];
   const isMyProfile = Boolean(profileData && myUserId && profileData.user.id === myUserId);
@@ -1000,15 +1052,6 @@ export default function CommunityScreen() {
           </TouchableOpacity>
         </View>
       </View>
-
-      {selectedHashtag ? (
-        <View style={[styles.activeTagFilterRow, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}> 
-          <Text style={[styles.activeTagFilterText, { color: colors.text }]}>필터: {selectedHashtag}</Text>
-          <TouchableOpacity style={[styles.activeTagFilterClearBtn, { borderColor: colors.border }]} onPress={clearHashtagFilter}>
-            <Text style={[styles.activeTagFilterClearText, { color: colors.textSecondary }]}>해제</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
 
       {isLoading ? (
         <View style={styles.loadingWrap}><ActivityIndicator color={colors.primary} size="large" /></View>
@@ -1075,6 +1118,15 @@ export default function CommunityScreen() {
               {composerImageUris.map((uri, index) => (
                 <View key={`${uri}_${index}`} style={styles.composerImageItem}>
                   <Image source={{ uri }} style={styles.composerImage} resizeMode="cover" />
+                  {index === 0 ? (
+                    <View style={styles.coverBadgePinned}>
+                      <Text style={styles.coverBadgePinnedText}>대표</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity style={styles.coverBadgeBtn} onPress={() => setComposerCoverImage(index)}>
+                      <Text style={styles.coverBadgeBtnText}>대표사진</Text>
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity style={[styles.composerImageRemove, { backgroundColor: 'rgba(15,23,42,0.72)' }]} onPress={() => removeComposerImage(index)}>
                     <AppIcon name="close" size={14} color="#FFFFFF" />
                   </TouchableOpacity>
@@ -1241,13 +1293,13 @@ export default function CommunityScreen() {
           <SafeAreaView style={styles.fullModalRoot} edges={['top', 'left', 'right']}>
             <KeyboardAvoidingView
               style={styles.fullModalRoot}
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              keyboardVerticalOffset={tabBarHeight}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
             >
             <View style={[styles.fullModalHeader, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}> 
-              <TouchableOpacity onPress={() => setDetailPost(null)}><AppIcon name="arrow-back" size={22} color={colors.text} /></TouchableOpacity>
-              <Text style={[styles.fullModalTitle, { color: colors.text }]}>게시물 상세</Text>
-              <TouchableOpacity onPress={() => openPostMenu(detailPost)}><AppIcon name="more-vert" size={22} color={colors.textSecondary} /></TouchableOpacity>
+              <TouchableOpacity style={styles.headerSideButton} onPress={() => setDetailPost(null)}><AppIcon name="arrow-back" size={22} color={colors.text} /></TouchableOpacity>
+              <Text style={[styles.fullModalTitle, styles.fullModalTitleCentered, { color: colors.text }]}>게시물 상세</Text>
+              <TouchableOpacity style={styles.headerSideButton} onPress={() => openPostMenu(detailPost)}><AppIcon name="more-vert" size={22} color={colors.textSecondary} /></TouchableOpacity>
             </View>
 
             <ScrollView
@@ -1274,7 +1326,7 @@ export default function CommunityScreen() {
 
                 {detailPost.caption ? (
                   <View style={styles.captionWrap}>
-                    <Text style={[styles.captionText, { color: colors.text }]}>{renderTextWithHashtags(detailPost.caption, applyHashtagFilter)}</Text>
+                    <Text style={[styles.captionText, { color: colors.text }]}>{renderTextWithHashtags(detailPost.caption)}</Text>
                   </View>
                 ) : null}
 
@@ -1336,7 +1388,7 @@ export default function CommunityScreen() {
                           </TouchableOpacity>
                           <View style={styles.commentBody}>
                             <Text style={[styles.commentAuthor, { color: colors.text }]}>{authorName}</Text>
-                            <Text style={[styles.commentContent, { color: colors.textSecondary }]}>{renderTextWithHashtags(c.content, applyHashtagFilter)}</Text>
+                            <Text style={[styles.commentContent, { color: colors.textSecondary }]}>{renderTextWithHashtags(c.content)}</Text>
                             <Text style={[styles.commentTime, { color: colors.textSecondary }]}>{timeAgo(c.createdAt)}</Text>
                           </View>
                           <TouchableOpacity style={styles.menuButton} onPress={() => openCommentMenu(c)}>
@@ -1371,7 +1423,7 @@ export default function CommunityScreen() {
                   borderTopColor: colors.border,
                   backgroundColor: colors.surface,
                   bottom: tabBarHeight,
-                  paddingBottom: Math.max(insets.bottom, 8),
+                  paddingBottom: Math.max(insets.bottom, 6),
                 },
               ]}
             >
@@ -1447,9 +1499,9 @@ export default function CommunityScreen() {
       <Modal visible={profileModalOpen} animationType="slide" onRequestClose={() => setProfileModalOpen(false)}>
         <SafeAreaView style={[styles.fullModalRoot, { backgroundColor: colors.surface }]}> 
           <View style={[styles.fullModalHeader, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}> 
-            <TouchableOpacity onPress={() => setProfileModalOpen(false)}><AppIcon name="arrow-back" size={22} color={colors.text} /></TouchableOpacity>
-            <Text style={[styles.fullModalTitle, { color: colors.text }]}>사용자 페이지</Text>
-            <View style={{ width: 60 }} />
+            <TouchableOpacity style={styles.headerSideButton} onPress={() => setProfileModalOpen(false)}><AppIcon name="arrow-back" size={22} color={colors.text} /></TouchableOpacity>
+            <Text style={[styles.fullModalTitle, styles.fullModalTitleCentered, { color: colors.text }]}>사용자 페이지</Text>
+            <View style={styles.headerSideSpacer} />
           </View>
 
           {profileIsLoading ? (
@@ -1658,9 +1710,9 @@ export default function CommunityScreen() {
       <Modal visible={foodImportOpen} animationType="slide" onRequestClose={() => setFoodImportOpen(false)}>
         <SafeAreaView style={[styles.fullModalRoot, { backgroundColor: colors.surface }]}> 
           <View style={[styles.fullModalHeader, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}> 
-            <TouchableOpacity onPress={() => setFoodImportOpen(false)}><AppIcon name="arrow-back" size={22} color={colors.text} /></TouchableOpacity>
-            <Text style={[styles.fullModalTitle, { color: colors.text }]}>분석한 음식 불러오기</Text>
-            <View style={{ width: 60 }} />
+            <TouchableOpacity style={styles.headerSideButton} onPress={() => setFoodImportOpen(false)}><AppIcon name="arrow-back" size={22} color={colors.text} /></TouchableOpacity>
+            <Text style={[styles.fullModalTitle, styles.fullModalTitleCentered, { color: colors.text }]}>분석한 음식 불러오기</Text>
+            <View style={styles.headerSideSpacer} />
           </View>
 
           <FlatList
@@ -1694,7 +1746,7 @@ export default function CommunityScreen() {
         </SafeAreaView>
       </Modal>
 
-      <Modal visible={noticeVisible || isCheckingNotice} transparent animationType="fade" onRequestClose={() => {}}>
+      <Modal visible={noticeVisible} transparent animationType="fade" onRequestClose={closeNoticeToScan}>
         <View style={styles.noticeBackdrop}>
           <View style={[styles.noticeCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
             <View style={styles.noticeHeaderRow}>
@@ -1727,8 +1779,7 @@ export default function CommunityScreen() {
                 </TouchableOpacity>
 
                 <View style={styles.noticeButtonsRow}>
-                  <Button title="미동의하고 시작하기" variant="outline" onPress={startWithDisagree} style={styles.noticeHalfBtn} />
-                  <Button title="동의하고 시작하기" onPress={agreeCommunityNotice} style={styles.noticeHalfBtn} />
+                  <Button title="확인" onPress={confirmCommunityNotice} style={styles.noticeConfirmBtn} />
                 </View>
               </>
             )}
@@ -1823,6 +1874,19 @@ const styles = StyleSheet.create({
   menuButton: { paddingHorizontal: 6, paddingVertical: 4 },
   captionWrap: { paddingHorizontal: SPACING.md, paddingBottom: 8 },
   captionText: { fontSize: 14, lineHeight: 21, fontWeight: '500' },
+  mineBadgeWrap: {
+    paddingHorizontal: SPACING.md,
+    paddingBottom: 8,
+  },
+  mineBadgeText: {
+    alignSelf: 'flex-start',
+    fontSize: 11,
+    fontWeight: '800',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: RADIUS.full,
+    backgroundColor: '#E6F0FF',
+  },
   postImagesWrap: { width: '100%', position: 'relative' },
   multiBadge: {
     position: 'absolute',
@@ -1881,6 +1945,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   fullModalTitle: { fontSize: 16, fontWeight: '800' },
+  fullModalTitleCentered: { flex: 1, textAlign: 'center' },
+  headerSideButton: {
+    width: 44,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerSideSpacer: { width: 44, height: 34 },
 
   composerScrollContent: { padding: SPACING.md, paddingBottom: 30 },
   composerCaptionInput: {
@@ -1913,6 +1985,34 @@ const styles = StyleSheet.create({
   composerImageRow: { gap: 10 },
   composerImageItem: { position: 'relative' },
   composerImage: { width: 104, height: 104, borderRadius: RADIUS.md, backgroundColor: '#E2E8F0' },
+  coverBadgePinned: {
+    position: 'absolute',
+    left: 6,
+    top: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: RADIUS.full,
+    backgroundColor: 'rgba(37,99,235,0.92)',
+  },
+  coverBadgePinnedText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  coverBadgeBtn: {
+    position: 'absolute',
+    left: 6,
+    top: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: RADIUS.full,
+    backgroundColor: 'rgba(15,23,42,0.78)',
+  },
+  coverBadgeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
   composerImageRemove: {
     position: 'absolute',
     top: 6,
@@ -2034,6 +2134,7 @@ const styles = StyleSheet.create({
     right: 0,
     borderTopWidth: 1,
     paddingTop: 8,
+    zIndex: 6,
   },
   detailScroll: { flex: 1 },
   detailScrollContent: {
@@ -2174,6 +2275,6 @@ const styles = StyleSheet.create({
   noticeCheckCircle: { width: 22, height: 22, borderWidth: 1, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   noticeChoiceText: { fontSize: 14, fontWeight: '700' },
   noticeButtonsRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  noticeHalfBtn: { flex: 1 },
+  noticeConfirmBtn: { flex: 1 },
   noticeLoadingWrap: { paddingVertical: 18, alignItems: 'center', justifyContent: 'center' },
 });

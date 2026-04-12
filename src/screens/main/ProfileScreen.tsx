@@ -114,7 +114,35 @@ export default function ProfileScreen() {
     if (isUpdatingAvatar) return;
 
     try {
-      const hasPhotoPermission = await ensurePhotoLibraryPermissionWithPrompt();
+      const hasPhotoPermission = await ensurePhotoLibraryPermissionWithPrompt({
+        confirmRequest: () =>
+          new Promise<boolean>((resolve) => {
+            alert({
+              title: '사진 접근 권한 필요',
+              message: '프로필 사진을 변경하려면 사진 접근 권한 허용이 필요해요. 지금 허용할까요?',
+              actions: [
+                { text: '나중에', variant: 'outline', onPress: () => resolve(false) },
+                { text: '권한 허용', variant: 'primary', onPress: () => resolve(true) },
+              ],
+            });
+          }),
+        onNeverAskAgain: ({ title, message, openSettings }) => {
+          alert({
+            title,
+            message,
+            actions: [
+              { text: '닫기', variant: 'outline' },
+              {
+                text: '설정 열기',
+                variant: 'primary',
+                onPress: () => {
+                  void openSettings();
+                },
+              },
+            ],
+          });
+        },
+      });
       if (!hasPhotoPermission) return;
 
       const picked = await pickAvatarFromLibrary();
@@ -536,6 +564,7 @@ const styles = StyleSheet.create({
   premiumBanner: {
     backgroundColor: COLORS.primaryDark,
     borderRadius: RADIUS.lg,
+    borderWidth: 1,
     padding: 20,
     flexDirection: 'row',
     alignItems: 'center',

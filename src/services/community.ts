@@ -2,7 +2,6 @@ import { supabase } from './supabaseClient';
 import { getSessionUserId } from './userData';
 import type {
   CommunityAuthor,
-  CommunityComment,
   CommunityCommentsPage,
   CommunityFeedScope,
   CommunityFollowUser,

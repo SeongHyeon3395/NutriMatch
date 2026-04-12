@@ -85,13 +85,13 @@ export default function RootNavigator() {
   const [networkNoticeShown, setNetworkNoticeShown] = useState(false);
   const sessionGuardRunningRef = useRef(false);
 
-  const resetTo = (name: keyof RootStackParamList, params?: any) => {
+  const resetTo = useCallback((name: keyof RootStackParamList, params?: any) => {
     if (navigationRef.isReady()) {
       navigationRef.resetRoot({ index: 0, routes: [{ name: name as any, params }] });
       return;
     }
     setPendingReset({ name, params });
-  };
+  }, [navigationRef]);
 
   const notifySessionExpiredAndGoLogin = useCallback(() => {
     if (sessionExpiredNoticeShown) {
@@ -105,7 +105,7 @@ export default function RootNavigator() {
       title: '세션 만료',
       message: '세션이 만료되었거나 로그아웃 상태입니다. 다시 로그인해주세요.',
     });
-  }, [alert, sessionExpiredNoticeShown]);
+  }, [alert, resetTo, sessionExpiredNoticeShown]);
 
   const guardProtectedRouteSession = useCallback(async () => {
     if (!navigationRef.isReady()) return;
@@ -131,7 +131,7 @@ export default function RootNavigator() {
     } finally {
       sessionGuardRunningRef.current = false;
     }
-  }, [navigationRef, notifySessionExpiredAndGoLogin]);
+  }, [navigationRef, notifySessionExpiredAndGoLogin, resetTo]);
 
   useEffect(() => {
     let mounted = true;
@@ -252,8 +252,15 @@ export default function RootNavigator() {
             }
           }
         } catch {
-          // 프로필 로드가 실패해도 세션은 살아있으므로 메인으로는 진입
-          if (mounted) resetTo('MainTab', { screen: 'Scan' });
+          // 프로필 로드/프로비저닝 실패 시에는 온보딩을 우선하여 진입 흐름이 끊기지 않게 함
+          if (mounted) {
+            const localProfile = useUserStore.getState().profile;
+            if (localProfile?.onboardingCompleted) {
+              resetTo('MainTab', { screen: 'Scan' });
+            } else {
+              resetTo('Onboarding', { initialStep: 1 });
+            }
+          }
         }
       } catch {
         await notifyNetworkIssueOnce();
@@ -314,7 +321,12 @@ export default function RootNavigator() {
           resetTo('Onboarding', { initialStep: 1 });
         }
       } catch {
-        resetTo('MainTab', { screen: 'Scan' });
+        const localProfile = useUserStore.getState().profile;
+        if (localProfile?.onboardingCompleted) {
+          resetTo('MainTab', { screen: 'Scan' });
+        } else {
+          resetTo('Onboarding', { initialStep: 1 });
+        }
       }
     });
 
@@ -322,7 +334,7 @@ export default function RootNavigator() {
       mounted = false;
       sub?.data?.subscription?.unsubscribe?.();
     };
-  }, [alert, clearAllData, networkNoticeShown, notifySessionExpiredAndGoLogin, setFoodLogs, setProfile]);
+  }, [alert, clearAllData, networkNoticeShown, notifySessionExpiredAndGoLogin, resetTo, setFoodLogs, setProfile]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {

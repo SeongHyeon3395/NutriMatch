@@ -53,7 +53,7 @@ if (!BASE_URL) {
         console.log('[ENV] Fallback .env.runtime.json BASE_URL applied:', BASE_URL);
       }
     }
-  } catch (_) {
+  } catch {
     if (__DEV__) {
       // eslint-disable-next-line no-console
       console.log('[ENV] No .env.runtime.json fallback found');

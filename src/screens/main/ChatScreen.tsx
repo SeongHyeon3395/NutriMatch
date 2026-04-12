@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CommonActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import NetInfo, { useNetInfo } from '@react-native-community/netinfo';
+import { useNetInfo } from '@react-native-community/netinfo';
 import { COLORS, RADIUS, SPACING } from '../../constants/colors';
 import { AppIcon } from '../../components/ui/AppIcon';
 import { MainShortcutBar } from '../../components/ui/MainShortcutBar';
@@ -73,6 +73,7 @@ export default function ChatScreen() {
   const prefillHandledRef = useRef(false);
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteSyncInFlightRef = useRef(false);
+  const sendMessageRef = useRef<(rawMessage: string, clearInput: boolean) => Promise<void>>(async () => {});
 
   const profile = useUserStore((s) => s.profile);
   const { alert } = useAppAlert();
@@ -387,6 +388,7 @@ export default function ChatScreen() {
       scrollToEnd(false);
     }
   };
+  sendMessageRef.current = sendMessage;
 
   const handleSend = () => {
     void sendMessage(text, true);
@@ -450,7 +452,7 @@ export default function ChatScreen() {
     if (autoSend) {
       // Do not leave text in the input; send directly and clear input.
       setText('');
-      void sendMessage(prefillMessage, true);
+      void sendMessageRef.current(prefillMessage, true);
       return;
     }
 
@@ -499,9 +501,9 @@ export default function ChatScreen() {
     );
   };
 
-  const handleBackPress = () => {
+  const handleBackPress = React.useCallback(() => {
     resetToMainTab('Profile');
-  };
+  }, [resetToMainTab]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -512,7 +514,7 @@ export default function ChatScreen() {
 
       const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
       return () => sub.remove();
-    }, [resetToMainTab])
+    }, [handleBackPress])
   );
 
   return (

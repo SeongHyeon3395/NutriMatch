@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useCallback } from 'react';
+import { Alert, BackHandler, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MainTabParamList } from './types';
 import { AppIcon } from '../components/ui/AppIcon';
@@ -19,8 +21,26 @@ export default function MainTabNavigator() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
 
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'android') return undefined;
+
+      const onBackPress = () => {
+        Alert.alert('앱 종료', '앱을 종료하시겠어요?', [
+          { text: '아니요', style: 'cancel' },
+          { text: '앱 종료', style: 'destructive', onPress: () => BackHandler.exitApp() },
+        ]);
+        return true;
+      };
+
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => sub.remove();
+    }, [])
+  );
+
   return (
     <Tab.Navigator
+      backBehavior="none"
       screenOptions={{
         headerShown: false,
         animation: 'none',
@@ -31,8 +51,8 @@ export default function MainTabNavigator() {
         },
         tabBarStyle: {
           backgroundColor: colors.backgroundGray,
-          borderTopWidth: 0,
-          borderTopColor: 'transparent',
+          borderTopWidth: 1.5,
+          borderTopColor: colors.border,
           height: MAIN_SHORTCUT_BAR_HEIGHT + insets.bottom,
           paddingTop: MAIN_SHORTCUT_BAR_TOP_PADDING,
           paddingBottom: MAIN_SHORTCUT_BAR_BOTTOM_PADDING + insets.bottom,
@@ -56,19 +76,6 @@ export default function MainTabNavigator() {
         component={ScanScreen}
         options={{
           tabBarLabel: '스캔',
-          tabBarStyle: {
-            backgroundColor: colors.backgroundGray,
-            borderTopWidth: 0,
-            borderTopColor: 'transparent',
-            height: MAIN_SHORTCUT_BAR_HEIGHT + insets.bottom,
-            paddingTop: MAIN_SHORTCUT_BAR_TOP_PADDING,
-            paddingBottom: MAIN_SHORTCUT_BAR_BOTTOM_PADDING + insets.bottom,
-            shadowColor: 'transparent',
-            shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: 0,
-            shadowRadius: 0,
-            elevation: 0,
-          },
           tabBarIcon: ({ color }) => <AppIcon name="document-scanner" color={color} size={24} />,
         }}
       />

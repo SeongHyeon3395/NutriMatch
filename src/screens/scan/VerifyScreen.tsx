@@ -43,10 +43,6 @@ function toFileUri(uriOrPath: string) {
   return `file://${uriOrPath}`;
 }
 
-function isLocalDeviceUri(value: unknown): value is string {
-  return typeof value === 'string' && /^(file|content):\/\//i.test(value);
-}
-
 async function getImageSizeSafe(uri: string): Promise<{ width: number; height: number } | null> {
   return new Promise(resolve => {
     try {
@@ -110,7 +106,6 @@ export default function VerifyScreen() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const analyzeInFlightRef = useRef(false);
   const profile = useUserStore(state => state.profile);
-  const addFoodLog = useUserStore(state => state.addFoodLog);
   const setFoodLogs = useUserStore(state => state.setFoodLogs);
   const monthlyScanLimit = getPlanLimits(profile?.plan_id).monthlyScanLimit;
   const { alert } = useAppAlert();
