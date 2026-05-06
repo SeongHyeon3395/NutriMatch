@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -18,7 +18,6 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RADIUS, SPACING } from '../../constants/colors';
 import { AppIcon } from '../../components/ui/AppIcon';
@@ -81,7 +80,9 @@ function timeAgo(iso: string) {
   const now = Date.now();
   const target = Date.parse(String(iso || ''));
   if (!Number.isFinite(target)) return '방금 전';
-  const diffSec = Math.max(1, Math.floor((now - target) / 1000));
+  const rawSec = Math.floor((now - target) / 1000);
+  if (rawSec < 0) return '방금 전';
+  const diffSec = Math.max(1, rawSec);
   if (diffSec < 60) return `${diffSec}초 전`;
   const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) return `${diffMin}분 전`;
@@ -164,7 +165,6 @@ export default function CommunityScreen() {
   const navigation = useNavigation();
   const { width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
   const foodLogs = useUserStore((state) => state.foodLogs);
   const loadFoodLogs = useUserStore((state) => state.loadFoodLogs);
 
@@ -230,6 +230,9 @@ export default function CommunityScreen() {
   const [isCheckingNotice, setIsCheckingNotice] = useState(false);
   const [noticeChoice, setNoticeChoice] = useState<'agree' | 'disagree' | null>(null);
 
+  /** 첫 피드 로드 이후에는 탭 재진입 시 전체 화면 로딩 대신 당겨서 새로고침과 같은 방식으로만 갱신 */
+  const feedHydratedRef = useRef(false);
+
   const feedImageSize = useMemo(() => Math.floor(screenWidth / 3) - 1, [screenWidth]);
   const postImageWidth = useMemo(() => screenWidth, [screenWidth]);
 
@@ -247,17 +250,16 @@ export default function CommunityScreen() {
     ));
   }, []);
 
-  const filteredFeedPosts = useMemo(() => posts, [posts]);
-
-  const loadFeed = useCallback(async (opts?: { refreshing?: boolean }) => {
+  const loadFeed = useCallback(async (opts?: { refreshing?: boolean; scope?: CommunityFeedScope }) => {
     const refreshing = Boolean(opts?.refreshing);
+    const scope = opts?.scope ?? feedScope;
     if (refreshing) setIsRefreshing(true);
     else setIsLoading(true);
 
     try {
       const [me, rows] = await Promise.all([
         getSessionUserId().catch(() => null),
-        listCommunityFeed({ limit: 60, scope: feedScope }),
+        listCommunityFeed({ limit: 60, scope }),
       ]);
       setMyUserId(me);
       setPosts(rows);
@@ -266,8 +268,17 @@ export default function CommunityScreen() {
     } finally {
       if (refreshing) setIsRefreshing(false);
       else setIsLoading(false);
+      feedHydratedRef.current = true;
     }
   }, [alert, feedScope]);
+
+  const selectFeedScope = useCallback(
+    (scope: CommunityFeedScope) => {
+      setFeedScope(scope);
+      void loadFeed({ refreshing: true, scope });
+    },
+    [loadFeed]
+  );
 
   const loadComments = useCallback(async (postId: string, opts?: { append?: boolean; offset?: number }) => {
     const append = Boolean(opts?.append);
@@ -280,7 +291,14 @@ export default function CommunityScreen() {
         setComments((prev) => {
           const map = new Map(prev.map((x) => [x.id, x]));
           page.comments.forEach((c) => map.set(c.id, c));
-          return Array.from(map.values());
+          return Array.from(map.values()).sort((a, b) => {
+            const ta = Date.parse(a.createdAt);
+            const tb = Date.parse(b.createdAt);
+            const na = Number.isFinite(ta) ? ta : 0;
+            const nb = Number.isFinite(tb) ? tb : 0;
+            if (na !== nb) return na - nb;
+            return a.id.localeCompare(b.id);
+          });
         });
       } else {
         setComments(page.comments);
@@ -295,15 +313,18 @@ export default function CommunityScreen() {
     }
   }, [alert]);
 
+  const loadFeedRef = useRef(loadFeed);
+  loadFeedRef.current = loadFeed;
+
   useFocusEffect(
     useCallback(() => {
-      void loadFeed();
-    }, [loadFeed])
+      if (!feedHydratedRef.current) {
+        void loadFeedRef.current();
+        return;
+      }
+      void loadFeedRef.current({ refreshing: true });
+    }, [])
   );
-
-  useEffect(() => {
-    void loadFeed();
-  }, [feedScope, loadFeed]);
 
   useEffect(() => {
     if (!detailPost) return;
@@ -584,18 +605,25 @@ export default function CommunityScreen() {
     const content = String(commentInput || '').trim();
     if (!content) return;
 
+    const postId = detailPost.id;
     try {
       setIsSendingComment(true);
-      await createCommunityComment(detailPost.id, content);
+      await createCommunityComment(postId, content);
       setCommentInput('');
-      await loadComments(detailPost.id, { offset: 0 });
-      await loadFeed({ refreshing: true });
+      // optimistically increment comment count in feed list
+      setPosts((prev) =>
+        prev.map((x) => (x.id === postId ? { ...x, commentCount: x.commentCount + 1 } : x))
+      );
+      setDetailPost((prev) =>
+        prev && prev.id === postId ? { ...prev, commentCount: prev.commentCount + 1 } : prev
+      );
+      await loadComments(postId, { offset: 0 });
     } catch (e: any) {
       alert({ title: '댓글 등록 실패', message: e?.message || '잠시 후 다시 시도해주세요.' });
     } finally {
       setIsSendingComment(false);
     }
-  }, [alert, commentInput, detailPost, isSendingComment, loadComments, loadFeed]);
+  }, [alert, commentInput, detailPost, isSendingComment, loadComments]);
 
   const loadMoreComments = useCallback(async () => {
     if (!detailPost || !commentsHasMore || isLoadingMoreComments || isCommentsLoading) return;
@@ -687,16 +715,23 @@ export default function CommunityScreen() {
     const target = commentMenuTarget;
     if (!target || !detailPost) return;
 
+    const postId = detailPost.id;
     try {
       await deleteCommunityComment(target.id);
       setCommentMenuOpen(false);
       setCommentMenuTarget(null);
-      await loadComments(detailPost.id, { offset: 0 });
-      await loadFeed({ refreshing: true });
+      // optimistically decrement comment count
+      setPosts((prev) =>
+        prev.map((x) => (x.id === postId ? { ...x, commentCount: Math.max(0, x.commentCount - 1) } : x))
+      );
+      setDetailPost((prev) =>
+        prev && prev.id === postId ? { ...prev, commentCount: Math.max(0, prev.commentCount - 1) } : prev
+      );
+      await loadComments(postId, { offset: 0 });
     } catch (e: any) {
       alert({ title: '댓글 삭제 실패', message: e?.message || '잠시 후 다시 시도해주세요.' });
     }
-  }, [alert, commentMenuTarget, detailPost, loadComments, loadFeed]);
+  }, [alert, commentMenuTarget, detailPost, loadComments]);
 
   const openCommentReportModal = useCallback(() => {
     setCommentMenuOpen(false);
@@ -731,14 +766,23 @@ export default function CommunityScreen() {
     if (!post) return;
 
     try {
-      await deleteCommunityPost(post.id);
+      const deletedId = post.id;
+      const wasViewingDetail = detailPost?.id === deletedId;
+      await deleteCommunityPost(deletedId);
       setPostMenuOpen(false);
       setPostMenuTarget(null);
+      setDetailPost((prev) => (prev?.id === deletedId ? null : prev));
+      if (wasViewingDetail) {
+        setComments([]);
+        setCommentsOffset(0);
+        setCommentsHasMore(false);
+        setCommentInput('');
+      }
       await loadFeed({ refreshing: true });
     } catch (e: any) {
       alert({ title: '게시물 삭제 실패', message: e?.message || '잠시 후 다시 시도해주세요.' });
     }
-  }, [alert, loadFeed, postMenuTarget]);
+  }, [alert, detailPost?.id, loadFeed, postMenuTarget]);
 
   const editPostFromMenu = useCallback(() => {
     const post = postMenuTarget;
@@ -952,7 +996,7 @@ export default function CommunityScreen() {
 
         {item.caption ? (
           <TouchableOpacity activeOpacity={0.9} onPress={() => openPostDetail(item)} style={styles.captionWrap}>
-            <Text style={[styles.captionText, { color: colors.text }]}>{renderTextWithHashtags(item.caption)}</Text>
+            <Text style={[styles.captionText, { color: colors.text }]} numberOfLines={4}>{renderTextWithHashtags(item.caption)}</Text>
           </TouchableOpacity>
         ) : null}
 
@@ -965,17 +1009,21 @@ export default function CommunityScreen() {
         {renderPostImages(item)}
 
         <View style={styles.statsRow}>
-          <Text style={[styles.statText, { color: colors.textSecondary }]}>공감 {item.reactionCount}</Text>
-          <Text style={[styles.statText, { color: colors.textSecondary }]}>댓글 {item.commentCount}</Text>
+          {item.reactionCount > 0 ? (
+            <Text style={[styles.statText, { color: colors.textSecondary }]}>공감 {item.reactionCount}</Text>
+          ) : null}
+          {item.commentCount > 0 ? (
+            <Text style={[styles.statText, { color: colors.textSecondary }]}>댓글 {item.commentCount}</Text>
+          ) : null}
         </View>
 
-        <View style={[styles.actionsRow, { borderTopColor: colors.border }]}> 
+        <View style={[styles.actionsRow, { borderTopColor: colors.border }]}>
           <TouchableOpacity style={styles.actionBtn} onPress={() => void toggleLike(item)}>
             <AppIcon name={item.isLikedByMe ? 'favorite' : 'favorite-border'} size={20} color={item.isLikedByMe ? colors.danger : colors.textSecondary} />
             <Text style={[styles.actionText, { color: item.isLikedByMe ? colors.danger : colors.textSecondary }]}>공감</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionBtn} onPress={() => void openComments(item)}>
+          <TouchableOpacity style={styles.actionBtn} onPress={() => openComments(item)}>
             <AppIcon name="chat-bubble-outline" size={20} color={colors.textSecondary} />
             <Text style={[styles.actionText, { color: colors.textSecondary }]}>댓글</Text>
           </TouchableOpacity>
@@ -1031,13 +1079,13 @@ export default function CommunityScreen() {
         <View style={styles.segmentWrap}>
           <TouchableOpacity
             style={[styles.segmentBtn, feedScope === 'all' && { backgroundColor: colors.primary }]}
-            onPress={() => setFeedScope('all')}
+            onPress={() => selectFeedScope('all')}
           >
             <Text style={[styles.segmentBtnText, { color: feedScope === 'all' ? '#FFFFFF' : colors.textSecondary }]}>전체보기</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.segmentBtn, feedScope === 'following' && { backgroundColor: colors.primary }]}
-            onPress={() => setFeedScope('following')}
+            onPress={() => selectFeedScope('following')}
           >
             <Text style={[styles.segmentBtnText, { color: feedScope === 'following' ? '#FFFFFF' : colors.textSecondary }]}>팔로우만</Text>
           </TouchableOpacity>
@@ -1058,7 +1106,7 @@ export default function CommunityScreen() {
       ) : viewMode === 'list' ? (
         <FlatList
           key="feed-list"
-          data={filteredFeedPosts}
+          data={posts}
           keyExtractor={(item) => item.id}
           renderItem={renderFeedPost}
           showsVerticalScrollIndicator={false}
@@ -1068,7 +1116,7 @@ export default function CommunityScreen() {
       ) : (
         <FlatList
           key="feed-grid"
-          data={filteredFeedPosts}
+          data={posts}
           keyExtractor={(item) => item.id}
           numColumns={3}
           renderItem={renderGridItem}
@@ -1293,7 +1341,7 @@ export default function CommunityScreen() {
           <SafeAreaView style={styles.fullModalRoot} edges={['top', 'left', 'right']}>
             <KeyboardAvoidingView
               style={styles.fullModalRoot}
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
             >
             <View style={[styles.fullModalHeader, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}> 
@@ -1333,8 +1381,12 @@ export default function CommunityScreen() {
                 {renderPostImages(detailPost)}
 
                 <View style={styles.statsRow}>
-                  <Text style={[styles.statText, { color: colors.textSecondary }]}>공감 {detailPost.reactionCount}</Text>
-                  <Text style={[styles.statText, { color: colors.textSecondary }]}>댓글 {detailPost.commentCount}</Text>
+                  {detailPost.reactionCount > 0 ? (
+                    <Text style={[styles.statText, { color: colors.textSecondary }]}>공감 {detailPost.reactionCount}</Text>
+                  ) : null}
+                  {detailPost.commentCount > 0 ? (
+                    <Text style={[styles.statText, { color: colors.textSecondary }]}>댓글 {detailPost.commentCount}</Text>
+                  ) : null}
                 </View>
 
                 <View style={[styles.actionsRow, { borderTopColor: colors.border }]}> 
@@ -1369,7 +1421,8 @@ export default function CommunityScreen() {
                   <View style={styles.commentsLoadingWrap}><ActivityIndicator color={colors.primary} /></View>
                 ) : comments.length === 0 ? (
                   <View style={styles.emptyCommentWrap}>
-                    <Text style={[styles.emptyText, { color: colors.textSecondary }]}>아직 댓글이 없습니다.</Text>
+                    <AppIcon name="chat-bubble-outline" size={28} color={colors.textSecondary} />
+                    <Text style={[styles.emptyCommentText, { color: colors.textSecondary }]}>첫 번째 댓글을 남겨보세요</Text>
                   </View>
                 ) : (
                   <View style={styles.commentsListContent}>
@@ -1422,7 +1475,6 @@ export default function CommunityScreen() {
                 {
                   borderTopColor: colors.border,
                   backgroundColor: colors.surface,
-                  bottom: tabBarHeight,
                   paddingBottom: Math.max(insets.bottom, 6),
                 },
               ]}
@@ -1434,16 +1486,27 @@ export default function CommunityScreen() {
                   editable={detailPost.commentsEnabled}
                   placeholder={detailPost.commentsEnabled ? '댓글을 입력하세요' : '작성자가 댓글을 닫았습니다'}
                   placeholderTextColor={colors.textSecondary}
+                  returnKeyType="send"
+                  onSubmitEditing={detailPost.commentsEnabled ? sendComment : undefined}
+                  blurOnSubmit={false}
                   style={[styles.commentInput, { borderColor: colors.border, backgroundColor: colors.surfaceElevated, color: colors.text }]}
                 />
-                <Button
-                  title="등록"
+                <TouchableOpacity
                   onPress={sendComment}
-                  loading={isSendingComment}
-                  size="sm"
-                  disabled={!detailPost.commentsEnabled}
-                  style={styles.commentSubmitBtn}
-                />
+                  disabled={!detailPost.commentsEnabled || isSendingComment || !commentInput.trim()}
+                  style={[
+                    styles.commentSubmitIconBtn,
+                    {
+                      backgroundColor: (!detailPost.commentsEnabled || !commentInput.trim()) ? colors.surfaceElevated : colors.primary,
+                    },
+                  ]}
+                >
+                  {isSendingComment ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <AppIcon name="send" size={18} color={(!detailPost.commentsEnabled || !commentInput.trim()) ? colors.textSecondary : '#FFFFFF'} />
+                  )}
+                </TouchableOpacity>
               </View>
             </View>
             </KeyboardAvoidingView>
@@ -1854,8 +1917,8 @@ const styles = StyleSheet.create({
 
   feedPost: {
     width: '100%',
-    borderBottomWidth: 2,
-    paddingTop: 10,
+    borderBottomWidth: 1,
+    paddingTop: 12,
   },
   feedPostHeader: {
     flexDirection: 'row',
@@ -1865,12 +1928,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   authorRow: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 },
-  avatarImage: { width: 34, height: 34, borderRadius: 17, marginRight: 10 },
-  avatarFallback: { width: 34, height: 34, borderRadius: 17, marginRight: 10, alignItems: 'center', justifyContent: 'center' },
-  avatarFallbackText: { fontSize: 12, fontWeight: '800' },
+  avatarImage: { width: 36, height: 36, borderRadius: 18, marginRight: 10 },
+  avatarFallback: { width: 36, height: 36, borderRadius: 18, marginRight: 10, alignItems: 'center', justifyContent: 'center' },
+  avatarFallbackText: { fontSize: 13, fontWeight: '800' },
   authorMeta: { flex: 1 },
-  authorName: { fontSize: 14, fontWeight: '800' },
-  authorSubText: { fontSize: 12, marginTop: 1, fontWeight: '500' },
+  authorName: { fontSize: 14, fontWeight: '700' },
+  authorSubText: { fontSize: 12, marginTop: 2, fontWeight: '400' },
   menuButton: { paddingHorizontal: 6, paddingVertical: 4 },
   captionWrap: { paddingHorizontal: SPACING.md, paddingBottom: 8 },
   captionText: { fontSize: 14, lineHeight: 21, fontWeight: '500' },
@@ -2062,27 +2125,35 @@ const styles = StyleSheet.create({
   commentContent: { marginTop: 2, fontSize: 14, lineHeight: 20, fontWeight: '500' },
   commentTime: { marginTop: 2, fontSize: 11, fontWeight: '500' },
   commentInputRow: {
-    paddingHorizontal: 10,
-    paddingTop: 4,
+    paddingHorizontal: 12,
+    paddingTop: 6,
     paddingBottom: 4,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   commentInput: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: RADIUS.sm,
-    paddingHorizontal: 14,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 14,
     minHeight: 42,
+    maxHeight: 90,
   },
   commentSubmitBtn: {
     borderRadius: RADIUS.sm,
     minHeight: 38,
     minWidth: 64,
     paddingHorizontal: 12,
+  },
+  commentSubmitIconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   menuSheet: {
@@ -2129,17 +2200,13 @@ const styles = StyleSheet.create({
     elevation: 20,
   },
   detailComposerDock: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
     borderTopWidth: 1,
     paddingTop: 8,
-    zIndex: 6,
   },
   detailScroll: { flex: 1 },
   detailScrollContent: {
     flexGrow: 1,
-    paddingBottom: 96,
+    paddingBottom: 16,
   },
   detailCommentsWrap: {
     flex: 1,
@@ -2155,9 +2222,14 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   emptyCommentWrap: {
-    paddingVertical: 20,
+    paddingVertical: 32,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+  },
+  emptyCommentText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   profileHeader: {

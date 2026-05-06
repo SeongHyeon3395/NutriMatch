@@ -13,6 +13,23 @@ if (__DEV__) {
 }
 import { Platform } from 'react-native';
 
+type RuntimeEnvJson = {
+  BASE_URL?: string;
+  SUPABASE_URL?: string;
+  SUPABASE_ANON_KEY?: string;
+};
+
+function readRuntimeEnv(): RuntimeEnvJson {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('../.env.runtime.json') as RuntimeEnvJson;
+  } catch {
+    return {};
+  }
+}
+
+const runtimeEnv = readRuntimeEnv();
+
 // Backend base URL (injected from .env)
 // Examples:
 // - Supabase: https://<project-ref>.functions.supabase.co
@@ -29,10 +46,19 @@ function normalizeBaseUrl(url: string) {
   return u;
 }
 
+/** REST/Auth 클라이언트용 `https://<ref>.supabase.co` (Functions BASE_URL에서 역산 가능) */
+function deriveSupabaseRestUrlFromFunctionsBase(baseUrl: string): string {
+  const fallback = (baseUrl || '').trim().replace(/\/$/, '');
+  if (!fallback) return '';
+  const stripped = fallback.replace(/\/functions\/v1\/?$/, '');
+  return stripped.replace(/\.functions\.supabase\.co$/i, '.supabase.co');
+}
+
 // Prefer explicit BASE_URL; else derive from SUPABASE_URL (.supabase.co -> .functions.supabase.co)
 let BASE_URL = normalizeBaseUrl(ENV_BASE_URL || '');
-if (!BASE_URL && ENV_SUPABASE_URL) {
-  const supa = (ENV_SUPABASE_URL || '').trim().replace(/\/$/, '');
+const envOrRuntimeSupabaseUrl = (ENV_SUPABASE_URL || runtimeEnv.SUPABASE_URL || '').trim();
+if (!BASE_URL && envOrRuntimeSupabaseUrl) {
+  const supa = envOrRuntimeSupabaseUrl.replace(/\/$/, '');
   const m = supa.match(/^(https?:)\/\/([^/]+)$/i);
   if (m) {
     const proto = m[1];
@@ -41,23 +67,11 @@ if (!BASE_URL && ENV_SUPABASE_URL) {
     if (__DEV__) console.log('[ENV] Derived BASE_URL from SUPABASE_URL:', BASE_URL);
   }
 }
-if (!BASE_URL) {
-  // Fallback: try static JSON file checked into repo (.env.runtime.json)
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const runtime = require('../.env.runtime.json');
-    if (runtime?.BASE_URL) {
-      BASE_URL = normalizeBaseUrl(runtime.BASE_URL);
-      if (__DEV__) {
-        // eslint-disable-next-line no-console
-        console.log('[ENV] Fallback .env.runtime.json BASE_URL applied:', BASE_URL);
-      }
-    }
-  } catch {
-    if (__DEV__) {
-      // eslint-disable-next-line no-console
-      console.log('[ENV] No .env.runtime.json fallback found');
-    }
+if (!BASE_URL && runtimeEnv.BASE_URL) {
+  BASE_URL = normalizeBaseUrl(runtimeEnv.BASE_URL);
+  if (__DEV__) {
+    // eslint-disable-next-line no-console
+    console.log('[ENV] Fallback .env.runtime.json BASE_URL applied:', BASE_URL);
   }
 }
 if (__DEV__ && !BASE_URL) {
@@ -65,6 +79,11 @@ if (__DEV__ && !BASE_URL) {
   console.warn('[ENV] BASE_URL empty after fallback. Create .env or .env.runtime.json and restart Metro.');
 }
 export { BASE_URL };
+
+/** `@supabase/supabase-js` createClient에 넣을 프로젝트 URL */
+export const SUPABASE_REST_URL = (
+  envOrRuntimeSupabaseUrl.replace(/\/$/, '') || deriveSupabaseRestUrlFromFunctionsBase(BASE_URL)
+).replace(/\/$/, '');
 
 export const ENDPOINTS = {
   // Active Supabase Edge Functions
@@ -78,7 +97,11 @@ export const ENDPOINTS = {
 
 // Supabase client headers
 // Use anon key for public functions or user access token for authenticated calls.
-export const SUPABASE_ANON_KEY = ENV_SUPABASE_ANON_KEY || '';
+export const SUPABASE_ANON_KEY = (
+  ENV_SUPABASE_ANON_KEY ||
+  runtimeEnv.SUPABASE_ANON_KEY ||
+  ''
+).trim();
 
 export const GOOGLE_WEB_CLIENT_ID = (
   ENV_GOOGLE_WEB_CLIENT_ID || '1002963880366-s3h0vqf32kt3q1tbrit9thhn4encbecr.apps.googleusercontent.com'

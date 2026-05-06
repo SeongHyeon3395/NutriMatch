@@ -54,6 +54,18 @@ function requireSupabase() {
   return supabase;
 }
 
+async function getHiddenUserIdsForViewer(viewerId: string): Promise<Set<string>> {
+  const client = requireSupabase();
+  const { data: hiddenRows, error } = await client
+    .from('community_hidden_users')
+    .select('hidden_user_id')
+    .eq('user_id', viewerId);
+  if (error) throw error;
+  return new Set(
+    (((hiddenRows as Array<{ hidden_user_id: string }> | null) ?? []).map((x) => x.hidden_user_id).filter(Boolean))
+  );
+}
+
 function isLocalDeviceUri(value: unknown): value is string {
   return typeof value === 'string' && /^(file|content):\/\//i.test(value);
 }
@@ -382,7 +394,7 @@ export async function updateCommunityPost(params: {
 
   const { error: updateError } = await client
     .from('community_posts')
-    .update({ caption, visibility } as any)
+    .update({ caption, visibility, image_path: null, image_url: null } as any)
     .eq('id', postId)
     .eq('user_id', userId);
   if (updateError) throw updateError;
@@ -469,20 +481,13 @@ export async function listCommunityFeed(params?: {
   const limit = Math.max(1, Math.min(120, params?.limit ?? 30));
   const scope: CommunityFeedScope = params?.scope === 'following' ? 'following' : 'all';
 
-  const { data: hiddenRows } = await client
-    .from('community_hidden_users')
-    .select('hidden_user_id')
-    .eq('user_id', me);
-
-  const hiddenSet = new Set(
-    (((hiddenRows as Array<{ hidden_user_id: string }> | null) ?? []).map((x) => x.hidden_user_id).filter(Boolean))
-  );
+  const hiddenSet = await getHiddenUserIdsForViewer(me);
 
   const { data: rawPosts, error: postError } = await client
     .from('community_posts')
     .select('id,user_id,caption,image_path,image_url,visibility,comments_enabled,created_at,updated_at')
     .order('created_at', { ascending: false })
-    .limit(200);
+    .limit(500);
   if (postError) throw postError;
 
   const postRows = (rawPosts as CommunityPostRow[] | null) ?? [];
@@ -632,10 +637,28 @@ export async function deleteCommunityComment(commentId: string) {
   const id = String(commentId || '').trim();
   if (!id) throw new Error('댓글 ID가 비어있습니다.');
 
-  const { error } = await client
+  const { data: row, error: selErr } = await client
     .from('community_post_comments')
-    .delete()
-    .eq('id', id);
+    .select('id,user_id,post_id')
+    .eq('id', id)
+    .maybeSingle();
+  if (selErr) throw selErr;
+  if (!row) throw new Error('댓글을 찾을 수 없습니다.');
+
+  const { data: postRow, error: postErr } = await client
+    .from('community_posts')
+    .select('user_id')
+    .eq('id', (row as { post_id: string }).post_id)
+    .maybeSingle();
+  if (postErr) throw postErr;
+
+  const commentAuthorId = String((row as { user_id?: string }).user_id || '');
+  const postOwnerId = String((postRow as { user_id?: string } | null)?.user_id || '');
+  if (commentAuthorId !== me && postOwnerId !== me) {
+    throw new Error('삭제 권한이 없습니다.');
+  }
+
+  const { error } = await client.from('community_post_comments').delete().eq('id', id);
   if (error) throw error;
 }
 
@@ -964,6 +987,8 @@ export async function listMyLikedCommunityPosts(limit = 120): Promise<CommunityP
   const me = await getSessionUserId();
   if (!me) throw new Error('로그인이 필요합니다.');
 
+  const hiddenSet = await getHiddenUserIdsForViewer(me);
+
   const { data: myLikes, error: likeError } = await client
     .from('community_post_reactions')
     .select('post_id')
@@ -1011,13 +1036,16 @@ export async function listMyLikedCommunityPosts(limit = 120): Promise<CommunityP
     commentCountMap.set(row.post_id, (commentCountMap.get(row.post_id) ?? 0) + 1);
   });
 
-  return buildPosts(rows, me, followingSet, likedSet, savedSet, reactionCountMap, commentCountMap);
+  const rowsFiltered = rows.filter((p) => !hiddenSet.has(p.user_id));
+  return buildPosts(rowsFiltered, me, followingSet, likedSet, savedSet, reactionCountMap, commentCountMap);
 }
 
 export async function listMySavedCommunityPosts(limit = 120): Promise<CommunityPost[]> {
   const client = requireSupabase();
   const me = await getSessionUserId();
   if (!me) throw new Error('로그인이 필요합니다.');
+
+  const hiddenSet = await getHiddenUserIdsForViewer(me);
 
   const { data: mySaves, error: saveError } = await client
     .from('community_saved_posts')
@@ -1066,5 +1094,6 @@ export async function listMySavedCommunityPosts(limit = 120): Promise<CommunityP
     commentCountMap.set(row.post_id, (commentCountMap.get(row.post_id) ?? 0) + 1);
   });
 
-  return buildPosts(rows, me, followingSet, likedSet, savedSet, reactionCountMap, commentCountMap);
+  const rowsFiltered = rows.filter((p) => !hiddenSet.has(p.user_id));
+  return buildPosts(rowsFiltered, me, followingSet, likedSet, savedSet, reactionCountMap, commentCountMap);
 }
